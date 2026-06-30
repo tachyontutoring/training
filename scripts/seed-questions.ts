@@ -10,6 +10,12 @@
  *     converted to sanitized HTML stored in stimulusTableHtml.
  * Anything malformed (or a table we can't convert) is skipped and logged.
  *
+ * Also seeds the **Math** bank (data/math/math-qbank-generated.json) as
+ * section="math", staged for whenever Math practice is wired up. Only
+ * type="mcq" questions are loaded — the bank's grid-in (free-response)
+ * questions don't fit the current A–D Question schema / test-runner UI and
+ * are skipped (count logged).
+ *
  * Usage:
  *   pnpm seed                                       # -> real project (needs FIREBASE_SERVICE_ACCOUNT_B64)
  *   NEXT_PUBLIC_USE_FIREBASE_EMULATOR=1 pnpm seed   # -> local emulator
@@ -57,13 +63,34 @@ const DIFFICULTY_MAP: Record<string, 2 | 3 | 4> = {
 
 const SOURCE_PATH =
   process.env.RW_QUESTIONS_PATH ||
-  "/Users/ck/Development/questions/data/rw/rw-qbank-generated.json";
+  "/Users/ck/Development/soa/questions/data/rw/rw-qbank-generated.json";
 
 // Directory holding the compiled figure PNGs (stimulus_image is relative to the
 // questions repo's site/ dir, e.g. "img/GEN-...png").
 const IMG_SRC_DIR =
-  process.env.RW_IMG_DIR || "/Users/ck/Development/questions/site/img";
+  process.env.RW_IMG_DIR || "/Users/ck/Development/soa/questions/site/img";
 const FIGURES_OUT_DIR = join(process.cwd(), "public", "figures");
+
+const MATH_SOURCE_PATH =
+  process.env.MATH_QUESTIONS_PATH ||
+  "/Users/ck/Development/soa/questions/data/math/math-qbank-generated.json";
+
+// Shape of one record in math-qbank-generated.json (only fields we use).
+// No `passage`/`stimulus_image`/`stimulus_latex` — math questions are bare
+// prompts (LaTeX inline in the text), and grid-in questions have no `choices`.
+interface SourceMathQuestion {
+  question_id: string;
+  domain: string;
+  skill: string;
+  sub_skill: string;
+  targeted_ability: string;
+  difficulty: "Easy" | "Medium" | "Hard";
+  type: "mcq" | "grid_in";
+  question: string;
+  choices?: Record<string, string>;
+  correct_answer: string;
+  rationale: string;
+}
 
 function escapeHtml(s: string): string {
   return s
@@ -231,6 +258,39 @@ function usable(q: SourceQuestion): boolean {
   return hasPassage || hasImage || hasTable;
 }
 
+// Only type="mcq" questions with valid A–D choices fit the current Question
+// schema; grid-in (free-response) questions are skipped by the caller.
+function usableMath(q: SourceMathQuestion): boolean {
+  if (q.type !== "mcq") return false;
+  const keys = Object.keys(q.choices || {}).sort().join("");
+  if (keys !== "ABCD") return false;
+  if (!["A", "B", "C", "D"].includes(q.correct_answer)) return false;
+  return !!q.question;
+}
+
+function transformMath(src: SourceMathQuestion) {
+  const keys = Object.keys(src.choices!).sort();
+  const choices = keys.map((k) => ({ key: k as AnswerKey, text: src.choices![k] }));
+
+  return {
+    section: "math" as const,
+    skill: src.skill,
+    subSkill: src.sub_skill,
+    domain: src.domain,
+    targetedAbility: src.targeted_ability,
+    difficulty: DIFFICULTY_MAP[src.difficulty] ?? 3,
+    prompt: src.question,
+    passage: "",
+    stimulusImage: null,
+    stimulusTableHtml: null,
+    choices,
+    correctAnswer: src.correct_answer as AnswerKey,
+    explanation: src.rationale,
+    source: "generated-math",
+    rand: Math.random(),
+  };
+}
+
 async function main() {
   const raw = JSON.parse(readFileSync(SOURCE_PATH, "utf8"));
   const all: SourceQuestion[] = raw.questions ?? raw;
@@ -242,10 +302,26 @@ async function main() {
   const skipped = all.length - keep.length;
 
   // Build the full records once (this also copies images / converts tables).
-  const records = keep.map((src) => ({
+  const records: Array<{ id: string } & Record<string, unknown>> = keep.map((src) => ({
     id: src.question_id.replace(/[^A-Za-z0-9_-]/g, "_"),
     ...transform(src),
   }));
+
+  // --- Math bank (MCQ only) ---
+  const mathRaw = JSON.parse(readFileSync(MATH_SOURCE_PATH, "utf8"));
+  const allMath: SourceMathQuestion[] = mathRaw.questions ?? mathRaw;
+  const keepMath = allMath.filter(usableMath);
+  const skippedMath = allMath.length - keepMath.length;
+  console.log(
+    `Loaded ${allMath.length} generated Math questions from ${MATH_SOURCE_PATH} ` +
+      `(${keepMath.length} mcq usable, ${skippedMath} skipped — grid-in / malformed, not yet supported)`,
+  );
+  for (const src of keepMath) {
+    records.push({
+      id: src.question_id.replace(/[^A-Za-z0-9_-]/g, "_"),
+      ...transformMath(src),
+    });
+  }
 
   // SNAPSHOT_ONLY=1 rebuilds the local snapshot + figures without touching
   // Firestore (useful when the bank is already seeded and you want to avoid
@@ -279,7 +355,7 @@ async function main() {
       ? `Snapshot-only: skipped Firestore writes.`
       : `Seeded ${written} questions to Firestore.`) +
       ` ${copiedImages} graph images copied, ${convertedTables} tables converted, ` +
-      `${skipped} skipped.\n` +
+      `${skipped} RW skipped, ${skippedMath} Math skipped (grid-in/malformed).\n` +
       `Wrote local snapshot data/question-bank.json (${records.length} questions).`,
   );
 }
