@@ -1,0 +1,14 @@
+node_modules
+.next
+out
+.env
+.env.local
+.env*.local
+*.log
+.firebase
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.DS_Store
+serviceAccountKey.json
+/questions

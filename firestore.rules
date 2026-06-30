@@ -1,0 +1,32 @@
+rules_version = '2';
+
+// School of Athens — Firestore security rules.
+//
+// Design: the question bank (with correct answers + explanations) is NEVER
+// exposed to the client. All grading, progress writes, and question delivery
+// go through Next.js API routes using the Admin SDK, which bypasses these
+// rules. Clients may only READ their own profile/progress for dashboards.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // A user's profile + everything beneath it (progress, sessions, responses).
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow write: if false; // server (Admin SDK) only
+
+      match /{document=**} {
+        allow read: if isOwner(uid);
+        allow write: if false; // server (Admin SDK) only
+      }
+    }
+
+    // The question bank is server-only — never readable from the browser.
+    match /questions/{questionId} {
+      allow read, write: if false;
+    }
+  }
+}

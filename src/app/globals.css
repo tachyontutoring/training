@@ -1,0 +1,155 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---- Design tokens as CSS vars (RGB channels for Tailwind opacity support) ---- */
+:root {
+  /* Paper (warm light backgrounds) */
+  --color-paper: 247 245 240;
+  --color-paper-soft: 240 237 228;
+  --color-paper-deep: 236 232 221;
+  /* Ink (near-black text) */
+  --color-ink: 10 10 10;
+  --color-ink-soft: 51 50 46;
+  --color-ink-muted: 107 104 96;
+  --color-ink-faint: 156 152 144;
+  /* Hairlines */
+  --color-line: 218 212 198;
+  --color-line-strong: 199 192 174;
+  /* Accent (ultramarine) */
+  --color-accent-50: 236 238 254;
+  --color-accent-100: 218 222 253;
+  --color-accent-200: 183 191 251;
+  --color-accent-300: 142 155 247;
+  --color-accent-400: 97 114 240;
+  --color-accent-500: 58 77 232;
+  --color-accent-600: 30 54 224;
+  --color-accent-700: 26 43 180;
+  --color-accent-800: 23 36 140;
+  --color-accent-900: 20 30 102;
+  /* Grid overlay */
+  --grid: rgba(10, 10, 10, 0.045);
+  --gutter: clamp(1.25rem, 4vw, 4rem);
+  --font-display: "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+  --font-sans: "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+}
+
+.dark {
+  --color-paper: 15 15 13;
+  --color-paper-soft: 22 21 18;
+  --color-paper-deep: 30 29 25;
+  --color-ink: 242 240 235;
+  --color-ink-soft: 200 196 188;
+  --color-ink-muted: 140 136 128;
+  --color-ink-faint: 80 78 74;
+  --color-line: 42 41 36;
+  --color-line-strong: 58 57 50;
+  --grid: rgba(242, 240, 235, 0.06);
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: rgb(var(--color-paper));
+  color: rgb(var(--color-ink));
+  font-feature-settings: "ss01", "cv01";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgb(var(--color-accent-600));
+  color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@layer components {
+  /* Page gutter / max width */
+  .wrap {
+    @apply mx-auto w-full max-w-page;
+    padding-left: var(--gutter);
+    padding-right: var(--gutter);
+  }
+
+  /* Fine graph-paper grid motif, layered behind content */
+  .grid-paper {
+    background-image:
+      linear-gradient(to right, var(--grid) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+
+  /* Monospace technical label */
+  .mono-label {
+    @apply font-mono text-[11px] uppercase tracking-label text-ink-muted;
+  }
+  .mono-label-accent {
+    @apply font-mono text-[11px] uppercase tracking-label text-accent-600;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600 focus-visible:ring-offset-2 focus-visible:ring-offset-paper disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-ink px-6 py-3 text-paper hover:bg-accent-600;
+  }
+  .btn-secondary {
+    @apply btn border border-line-strong px-6 py-3 text-ink hover:border-accent-600 hover:text-accent-700;
+  }
+  .btn-ghost {
+    @apply btn px-1 py-1 text-ink underline decoration-line decoration-2 underline-offset-[6px] hover:decoration-accent-600;
+  }
+
+  /* Editorial card: hairline-bordered block on soft paper */
+  .card {
+    @apply border border-line bg-paper-soft/50 p-6;
+  }
+
+  /* Form input */
+  .input {
+    @apply w-full border border-line bg-paper px-3 py-2 text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent-600;
+  }
+
+  /* Reveal-on-scroll */
+  .reveal {
+    opacity: 0;
+    transform: translateY(18px);
+    transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform;
+  }
+  .reveal.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; }
+}
+
+/* Rendered HTML for table-stimulus questions in the test runner. */
+.stimulus-table table {
+  @apply w-full border-collapse text-[15px];
+}
+.stimulus-table caption {
+  @apply mb-2 text-center font-semibold text-slate-800;
+}
+.stimulus-table th,
+.stimulus-table td {
+  @apply border border-slate-300 px-3 py-1.5 text-left;
+}
+.stimulus-table th {
+  @apply bg-slate-100 font-semibold;
+}
