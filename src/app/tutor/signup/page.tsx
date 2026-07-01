@@ -10,7 +10,6 @@ export default function TutorSignupPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [confirmEmail, setConfirmEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [accessCode, setAccessCode] = useState("");
@@ -20,10 +19,6 @@ export default function TutorSignupPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) {
-      setError("Emails don't match.");
-      return;
-    }
     if (password !== confirmPassword) {
       setError("Passwords don't match.");
       return;
@@ -75,10 +70,6 @@ export default function TutorSignupPage() {
         <div>
           <label className="mono-label mb-1.5 block">Email</label>
           <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </div>
-        <div>
-          <label className="mono-label mb-1.5 block">Confirm email</label>
-          <input className="input" type="email" value={confirmEmail} onChange={(e) => setConfirmEmail(e.target.value)} onPaste={(e) => e.preventDefault()} required />
         </div>
         <div>
           <label className="mono-label mb-1.5 block">Password</label>
