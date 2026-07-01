@@ -32,10 +32,11 @@ export async function POST(req: NextRequest) {
     const tutorId = await requireTutor(req);
     const body = await req.json().catch(() => ({}));
     const email = typeof body?.email === "string" ? body.email : "";
+    const name = typeof body?.name === "string" ? body.name : undefined;
     if (!email) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
-    const student = await addStudentByEmail(tutorId, email);
+    const student = await addStudentByEmail(tutorId, email, name);
     return NextResponse.json({ student });
   } catch (err) {
     return fail(err, "[api/tutor/students POST]");

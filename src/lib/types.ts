@@ -16,7 +16,9 @@ export interface UserProfile {
 }
 
 export interface AssignmentCriteria {
+  sections: Section[]; // empty = any section (reading | math)
   skills: string[]; // empty = any skill
+  subSkills: string[]; // empty = any subskill (within the chosen skills)
   difficulties: number[]; // empty = any difficulty (values among 2,3,4)
   count: number;
 }
@@ -48,6 +50,8 @@ export interface Question {
   id: string;
   section: Section;
   skill: string; // e.g. "Linear equations", "Words in context"
+  subSkill?: string | null; // finer-grained tag, e.g. "COE_QUANT_COMPLETE"
+  domain?: string | null; // College Board domain grouping
   difficulty: 1 | 2 | 3 | 4 | 5;
   passage?: string; // reading questions usually carry a passage
   stimulusImage?: string | null; // public path to a graph/figure PNG
@@ -82,12 +86,19 @@ export interface SessionDoc {
   // served from `queue` in order rather than chosen adaptively.
   assignmentId?: string | null;
   queue?: string[] | null;
+  // Bluebook-style free navigation: ungraded answer drafts + marks + position,
+  // autosaved as the student works so a set can be left and resumed. Graded
+  // only when the whole set is submitted.
+  draftAnswers?: Record<string, AnswerKey> | null;
+  markedQuestionIds?: string[] | null;
+  currentIndex?: number | null;
 }
 
 export interface ResponseDoc {
   questionId: string;
   section: Section;
   skill: string;
+  subSkill?: string | null;
   difficulty: number;
   selectedAnswer: AnswerKey;
   correct: boolean;
@@ -101,6 +112,7 @@ export interface ProgressStats {
   totalCorrect: number;
   bySection: Record<Section, { answered: number; correct: number }>;
   bySkill: Record<string, { answered: number; correct: number }>;
+  bySubSkill: Record<string, { answered: number; correct: number }>;
   updatedAt: number;
 }
 
@@ -113,6 +125,7 @@ export function emptyProgress(): ProgressStats {
       math: { answered: 0, correct: 0 },
     },
     bySkill: {},
+    bySubSkill: {},
     updatedAt: 0,
   };
 }

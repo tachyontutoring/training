@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireTutor, AuthError, ForbiddenError } from "@/lib/server-auth";
-import { getStudentDetail } from "@/lib/tutor-service";
+import { getStudentDetail, setStudentName } from "@/lib/tutor-service";
 
 export const runtime = "nodejs";
 
@@ -13,6 +13,30 @@ export async function GET(
     const { uid } = await params;
     const detail = await getStudentDetail(tutorId, uid);
     return NextResponse.json(detail);
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: 401 });
+    }
+    if (err instanceof ForbiddenError) {
+      return NextResponse.json({ error: err.message }, { status: 403 });
+    }
+    const msg = err instanceof Error ? err.message : "Server error";
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
+}
+
+// Tutor renames a student on their roster.
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ uid: string }> },
+) {
+  try {
+    const tutorId = await requireTutor(req);
+    const { uid } = await params;
+    const body = await req.json().catch(() => ({}));
+    const name = typeof body?.name === "string" ? body.name : "";
+    await setStudentName(tutorId, uid, name);
+    return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: 401 });

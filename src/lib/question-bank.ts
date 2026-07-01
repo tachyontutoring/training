@@ -83,40 +83,97 @@ export async function refresh(): Promise<void> {
   await ensureLoaded();
 }
 
-// Distinct skills + difficulties present in the bank, for building the
-// tutor's assignment form. Skills are returned sorted.
+// The section → skill → subskill tree plus difficulties, for building the
+// tutor's assignment form. Sections come in test order; skills/subskills sorted.
+export interface SkillFacet {
+  skill: string;
+  subSkills: string[];
+}
+export interface SectionFacet {
+  section: Section;
+  label: string;
+  skills: SkillFacet[];
+}
+
+const SECTION_LABEL: Record<Section, string> = {
+  reading: "Reading & Writing",
+  math: "Math",
+};
+const SECTION_ORDER: Section[] = ["reading", "math"];
+
 export async function bankFacets(): Promise<{
-  skills: string[];
+  sections: SectionFacet[];
   difficulties: number[];
 }> {
   await ensureLoaded();
-  const skills = new Set<string>();
   const difficulties = new Set<number>();
+  // section -> (skill -> set of subskills)
+  const tree = new Map<Section, Map<string, Set<string>>>();
   for (const q of state.cache!) {
-    skills.add(q.skill);
     difficulties.add(q.difficulty);
+    if (!tree.has(q.section)) tree.set(q.section, new Map());
+    const skillMap = tree.get(q.section)!;
+    if (!skillMap.has(q.skill)) skillMap.set(q.skill, new Set());
+    if (q.subSkill) skillMap.get(q.skill)!.add(q.subSkill);
   }
+  const sections: SectionFacet[] = SECTION_ORDER.filter((s) => tree.has(s)).map(
+    (s) => ({
+      section: s,
+      label: SECTION_LABEL[s],
+      skills: [...tree.get(s)!.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([skill, subs]) => ({ skill, subSkills: [...subs].sort() })),
+    }),
+  );
   return {
-    skills: [...skills].sort(),
+    sections,
     difficulties: [...difficulties].sort((a, b) => a - b),
   };
 }
 
 // Randomly sample up to `count` questions matching the given criteria. Empty
-// skills/difficulties mean "any". Returns the chosen question ids.
+// sections/skills/subSkills/difficulties each mean "any". A subskill selection
+// narrows ONLY its own skill: a question qualifies on the skill axis if its
+// subskill is explicitly chosen, OR its skill is chosen and that skill has no
+// subskill selected (so "skill A (all) + subskill B1 of skill B" works).
 export async function sampleByCriteria(criteria: {
+  sections?: Section[];
   skills: string[];
+  subSkills?: string[];
   difficulties: number[];
   count: number;
+  exclude?: string[];
 }): Promise<string[]> {
   await ensureLoaded();
-  const skillSet = new Set(criteria.skills);
-  const diffSet = new Set(criteria.difficulties);
-  const pool = state.cache!.filter(
-    (q) =>
-      (skillSet.size === 0 || skillSet.has(q.skill)) &&
-      (diffSet.size === 0 || diffSet.has(q.difficulty)),
-  );
+  const sectionSet = new Set(criteria.sections ?? []);
+  const skillSet = new Set(criteria.skills ?? []);
+  const subSkillSet = new Set(criteria.subSkills ?? []);
+  const diffSet = new Set(criteria.difficulties ?? []);
+  const excludeSet = new Set(criteria.exclude ?? []);
+
+  // Which skills have a narrowing subskill selected (maps subskill → its skill).
+  const skillsWithSelectedSub = new Set<string>();
+  if (subSkillSet.size) {
+    const subToSkill = new Map<string, string>();
+    for (const q of state.cache!) {
+      if (q.subSkill && !subToSkill.has(q.subSkill)) subToSkill.set(q.subSkill, q.skill);
+    }
+    for (const ss of subSkillSet) {
+      const sk = subToSkill.get(ss);
+      if (sk) skillsWithSelectedSub.add(sk);
+    }
+  }
+  const anySkillFilter = skillSet.size > 0 || subSkillSet.size > 0;
+
+  const pool = state.cache!.filter((q) => {
+    if (excludeSet.has(q.id)) return false;
+    if (sectionSet.size && !sectionSet.has(q.section)) return false;
+    if (diffSet.size && !diffSet.has(q.difficulty)) return false;
+    if (!anySkillFilter) return true;
+    if (q.subSkill && subSkillSet.has(q.subSkill)) return true;
+    if (skillSet.has(q.skill) && !skillsWithSelectedSub.has(q.skill)) return true;
+    return false;
+  });
   // Partial Fisher–Yates for the first `count` slots.
   const n = Math.min(criteria.count, pool.length);
   const picks = pool.slice();
@@ -125,6 +182,126 @@ export async function sampleByCriteria(criteria: {
     [picks[i], picks[j]] = [picks[j], picks[i]];
   }
   return picks.slice(0, n).map((q) => q.id);
+}
+
+// A tutor-facing preview of a bank question (includes the answer + explanation,
+// which is fine because this only ever goes to authenticated tutors).
+export interface QuestionPreview {
+  id: string;
+  section: Section;
+  skill: string;
+  subSkill: string | null;
+  difficulty: number;
+  prompt: string;
+  passage: string | null;
+  stimulusImage: string | null;
+  stimulusTableHtml: string | null;
+  choices: { key: string; text: string }[];
+  correctAnswer: string;
+  explanation: string;
+  hasStimulus: boolean;
+}
+
+// Browse the bank for the tutor's "pick specific questions" flow. Filters mirror
+// sampleByCriteria; `exclude` drops questions the student has already seen.
+export async function searchQuestions(filter: {
+  sections?: Section[];
+  skills?: string[];
+  subSkills?: string[];
+  difficulties?: number[];
+  exclude?: string[];
+  limit?: number;
+}): Promise<{ questions: QuestionPreview[]; total: number }> {
+  await ensureLoaded();
+  const sectionSet = new Set(filter.sections ?? []);
+  const skillSet = new Set(filter.skills ?? []);
+  const subSkillSet = new Set(filter.subSkills ?? []);
+  const diffSet = new Set(filter.difficulties ?? []);
+  const excludeSet = new Set(filter.exclude ?? []);
+  const limit = Math.max(1, Math.min(200, filter.limit ?? 50));
+
+  const matches = state.cache!.filter((q) => {
+    if (excludeSet.has(q.id)) return false;
+    if (sectionSet.size && !sectionSet.has(q.section)) return false;
+    if (diffSet.size && !diffSet.has(q.difficulty)) return false;
+    if (skillSet.size && !skillSet.has(q.skill)) return false;
+    if (subSkillSet.size && !(q.subSkill && subSkillSet.has(q.subSkill))) return false;
+    return true;
+  });
+
+  const questions = matches.slice(0, limit).map((q) => ({
+    id: q.id,
+    section: q.section,
+    skill: q.skill,
+    subSkill: q.subSkill ?? null,
+    difficulty: q.difficulty,
+    prompt: q.prompt,
+    passage: q.passage ?? null,
+    stimulusImage: q.stimulusImage ?? null,
+    stimulusTableHtml: q.stimulusTableHtml ?? null,
+    choices: q.choices,
+    correctAnswer: q.correctAnswer,
+    explanation: q.explanation,
+    hasStimulus: !!(q.stimulusImage || q.stimulusTableHtml || (q.passage && q.passage.trim())),
+  }));
+  return { questions, total: matches.length };
+}
+
+// Random `n` from a pool via partial Fisher–Yates (no full shuffle).
+function pickRandom<T>(pool: T[], n: number): T[] {
+  const k = Math.min(n, pool.length);
+  const arr = pool.slice();
+  for (let i = 0; i < k; i++) {
+    const j = i + Math.floor(Math.random() * (arr.length - i));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr.slice(0, k);
+}
+
+// Assemble one practice-test module: for each skill×difficulty cell in the mix,
+// pull that many questions. If a cell is short, backfill from the same skill
+// (any difficulty). `exclude` avoids repeats across the test.
+export async function sampleModuleQuestions(params: {
+  sections: Section[];
+  mix: Record<string, Partial<Record<number, number>>>;
+  exclude?: string[];
+}): Promise<string[]> {
+  await ensureLoaded();
+  const sectionSet = new Set(params.sections);
+  const taken = new Set(params.exclude ?? []);
+  const result: string[] = [];
+
+  const take = (qs: Question[]) => {
+    for (const q of qs) {
+      taken.add(q.id);
+      result.push(q.id);
+    }
+  };
+
+  for (const [skill, cell] of Object.entries(params.mix)) {
+    for (const [dStr, want] of Object.entries(cell)) {
+      const d = Number(dStr);
+      const need = want ?? 0;
+      if (need <= 0) continue;
+      const exact = state.cache!.filter(
+        (q) =>
+          sectionSet.has(q.section) &&
+          q.skill === skill &&
+          q.difficulty === d &&
+          !taken.has(q.id),
+      );
+      const picked = pickRandom(exact, need);
+      take(picked);
+      const short = need - picked.length;
+      if (short > 0) {
+        const alt = state.cache!.filter(
+          (q) => sectionSet.has(q.section) && q.skill === skill && !taken.has(q.id),
+        );
+        take(pickRandom(alt, short));
+      }
+    }
+  }
+  return result;
 }
 
 // Return up to `limit` not-yet-served questions in the given sections, sampled

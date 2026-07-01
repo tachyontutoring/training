@@ -1,50 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUid, AuthError } from "@/lib/server-auth";
-import { getSessionFull, saveDraft } from "@/lib/session-service";
+import { getPracticeTest, savePracticeDraft } from "@/lib/practice-service";
 
 export const runtime = "nodejs";
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: Promise<{ sessionId: string }> },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const uid = await requireUid(req);
-    const { sessionId } = await params;
-    const result = await getSessionFull(uid, sessionId);
-    if (!result) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    }
-    return NextResponse.json(result);
+    const { id } = await params;
+    const view = await getPracticeTest(uid, id);
+    if (!view) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json(view);
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: 401 });
     }
-    console.error("[api/session/:id GET]", err);
+    console.error("[api/practice-test/:id GET]", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
 
-// Autosave ungraded answer drafts / marks / position so a set can be resumed.
+// Autosave the current module's answer drafts.
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: Promise<{ sessionId: string }> },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const uid = await requireUid(req);
-    const { sessionId } = await params;
+    const { id } = await params;
     const body = await req.json().catch(() => ({}));
-    await saveDraft(uid, sessionId, {
-      answers: body?.answers ?? {},
-      marked: Array.isArray(body?.marked) ? body.marked : [],
-      currentIndex: body?.currentIndex,
-    });
+    await savePracticeDraft(uid, id, body?.answers ?? {});
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: 401 });
     }
-    console.error("[api/session/:id PATCH]", err);
+    console.error("[api/practice-test/:id PATCH]", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
