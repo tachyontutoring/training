@@ -103,6 +103,29 @@ export async function createAssignmentSession(
     throw new Error("This assignment isn't yours.");
   }
 
+  // Resume an already-started session for this assignment instead of wiping
+  // progress and starting over. We pick up at its current question.
+  if (assignment.sessionId) {
+    const existingRef = adminDb.doc(`users/${uid}/sessions/${assignment.sessionId}`);
+    const existingSnap = await existingRef.get();
+    if (existingSnap.exists) {
+      const existing = existingSnap.data() as SessionDoc;
+      if (existing.status === "active" && existing.currentQuestionId) {
+        const current = await getQuestionById(existing.currentQuestionId);
+        if (current) {
+          return {
+            session: existing,
+            question: toPublicQuestion(current),
+            coaching:
+              existing.answered > 0
+                ? `Resuming: ${assignment.title} (${existing.answered} of ${existing.targetCount} done)`
+                : `Assigned by your tutor: ${assignment.title}`,
+          };
+        }
+      }
+    }
+  }
+
   // Keep only ids that still exist in the bank.
   const queue: string[] = [];
   for (const id of assignment.questionIds) {
@@ -153,6 +176,206 @@ export async function getSession(
   return { session, question, coaching: "" };
 }
 
+// The ordered ids a session covers — the assignment queue, or whatever has been
+// served for an adaptive session.
+function coveredIds(session: SessionDoc): string[] {
+  return (session.queue && session.queue.length
+    ? session.queue
+    : session.servedQuestionIds) ?? [];
+}
+
+export interface SessionFull {
+  session: SessionDoc;
+  questions: PublicQuestion[];
+  answers: Record<string, AnswerKey>;
+  marked: string[];
+  currentIndex: number;
+}
+
+// Full session state for the Bluebook-style runner: every question (no answers)
+// plus the saved answer drafts, marks, and last position.
+export async function getSessionFull(
+  uid: string,
+  sessionId: string,
+): Promise<SessionFull | null> {
+  const ref = adminDb.doc(`users/${uid}/sessions/${sessionId}`);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const session = snap.data() as SessionDoc;
+
+  const questions: PublicQuestion[] = [];
+  for (const id of coveredIds(session)) {
+    const q = await getQuestionById(id);
+    if (q) questions.push(toPublicQuestion(q));
+  }
+  return {
+    session,
+    questions,
+    answers: session.draftAnswers ?? {},
+    marked: session.markedQuestionIds ?? [],
+    currentIndex: session.currentIndex ?? 0,
+  };
+}
+
+const ANSWER_KEYS = new Set<AnswerKey>(["A", "B", "C", "D"]);
+
+// Persist ungraded progress so a set can be resumed. Never grades.
+export async function saveDraft(
+  uid: string,
+  sessionId: string,
+  draft: { answers?: Record<string, string>; marked?: string[]; currentIndex?: number },
+): Promise<void> {
+  const ref = adminDb.doc(`users/${uid}/sessions/${sessionId}`);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error("Session not found");
+  const session = snap.data() as SessionDoc;
+  if (session.status === "completed") return; // already graded — ignore late saves
+
+  const valid = new Set(coveredIds(session));
+  const answers: Record<string, AnswerKey> = {};
+  for (const [qid, a] of Object.entries(draft.answers ?? {})) {
+    if (valid.has(qid) && ANSWER_KEYS.has(a as AnswerKey)) answers[qid] = a as AnswerKey;
+  }
+  const marked = (draft.marked ?? []).filter((id) => valid.has(id));
+  const currentIndex = Number.isFinite(draft.currentIndex) ? Number(draft.currentIndex) : 0;
+
+  const writes: Promise<unknown>[] = [
+    ref.set({ draftAnswers: answers, markedQuestionIds: marked, currentIndex }, { merge: true }),
+  ];
+  // Reflect in-progress count on the assignment (dashboard "Resume 3/10").
+  if (session.assignmentId) {
+    writes.push(
+      adminDb
+        .doc(`assignments/${session.assignmentId}`)
+        .set({ status: "assigned", answered: Object.keys(answers).length }, { merge: true }),
+    );
+  }
+  await Promise.all(writes);
+}
+
+export interface SubmittedQuestion {
+  questionId: string;
+  yourAnswer: AnswerKey | null;
+  correctAnswer: AnswerKey;
+  correct: boolean;
+  explanation: string;
+}
+export interface SubmitResult {
+  session: SessionDoc;
+  results: SubmittedQuestion[];
+}
+
+// Grade an entire set at once (end of a Bluebook-style run). Idempotent: if the
+// session is already completed, it re-reports results without touching progress.
+export async function submitSession(
+  uid: string,
+  sessionId: string,
+  answers: Record<string, string>,
+  times: Record<string, number> = {},
+): Promise<SubmitResult> {
+  const ref = adminDb.doc(`users/${uid}/sessions/${sessionId}`);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error("Session not found");
+  const session = snap.data() as SessionDoc;
+
+  const alreadyDone = session.status === "completed";
+  const source = alreadyDone ? session.draftAnswers ?? {} : answers;
+
+  const progress = await getProgress(uid);
+  progress.bySkill ??= {};
+  progress.bySubSkill ??= {};
+  const results: SubmittedQuestion[] = [];
+  const responseWrites: Promise<unknown>[] = [];
+  let answered = 0;
+  let correctCount = 0;
+  let totalTimeMs = 0;
+
+  for (const id of coveredIds(session)) {
+    const q = await getQuestionById(id);
+    if (!q) continue;
+    const raw = source[id];
+    const your = ANSWER_KEYS.has(raw as AnswerKey) ? (raw as AnswerKey) : null;
+    const isCorrect = your != null && your === q.correctAnswer;
+    results.push({
+      questionId: id,
+      yourAnswer: your,
+      correctAnswer: q.correctAnswer,
+      correct: isCorrect,
+      explanation: q.explanation,
+    });
+    if (alreadyDone || your == null) continue;
+
+    answered += 1;
+    if (isCorrect) correctCount += 1;
+    const t = Math.max(0, Math.floor(times[id] ?? 0));
+    totalTimeMs += t;
+
+    progress.totalAnswered += 1;
+    if (isCorrect) progress.totalCorrect += 1;
+    progress.bySection[q.section].answered += 1;
+    if (isCorrect) progress.bySection[q.section].correct += 1;
+    const sk = (progress.bySkill[q.skill] ??= { answered: 0, correct: 0 });
+    sk.answered += 1;
+    if (isCorrect) sk.correct += 1;
+    if (q.subSkill) {
+      const ss = (progress.bySubSkill[q.subSkill] ??= { answered: 0, correct: 0 });
+      ss.answered += 1;
+      if (isCorrect) ss.correct += 1;
+    }
+
+    const response: ResponseDoc = {
+      questionId: id,
+      section: q.section,
+      skill: q.skill,
+      subSkill: q.subSkill ?? null,
+      difficulty: q.difficulty,
+      selectedAnswer: your,
+      correct: isCorrect,
+      answeredAt: Date.now(),
+      timeMs: t,
+    };
+    responseWrites.push(
+      adminDb.doc(`users/${uid}/sessions/${sessionId}/responses/${id}`).set(response),
+    );
+  }
+
+  if (alreadyDone) return { session, results };
+
+  progress.updatedAt = Date.now();
+  const updatedSession: SessionDoc = {
+    ...session,
+    answered,
+    correct: correctCount,
+    totalTimeMs,
+    status: "completed",
+    currentQuestionId: null,
+    draftAnswers: source as Record<string, AnswerKey>,
+  };
+  const writes: Promise<unknown>[] = [
+    ...responseWrites,
+    adminDb
+      .doc(`users/${uid}`)
+      .set({ progress, updatedAt: FieldValue.serverTimestamp() }, { merge: true }),
+    ref.set(updatedSession),
+  ];
+  if (session.assignmentId) {
+    writes.push(
+      adminDb.doc(`assignments/${session.assignmentId}`).set(
+        {
+          status: "completed",
+          answered,
+          correct: correctCount,
+          totalTimeMs,
+          completedAt: Date.now(),
+        },
+        { merge: true },
+      ),
+    );
+  }
+  await Promise.all(writes);
+  return { session: updatedSession, results };
+}
+
 export interface GradeResult {
   correct: boolean;
   correctAnswer: AnswerKey;
@@ -189,6 +412,7 @@ export async function submitAnswer(
     questionId,
     section: question.section,
     skill: question.skill,
+    subSkill: question.subSkill ?? null,
     difficulty: question.difficulty,
     selectedAnswer,
     correct,
@@ -198,6 +422,8 @@ export async function submitAnswer(
 
   // Update aggregate progress on the user doc.
   const progress = await getProgress(uid);
+  progress.bySkill ??= {};
+  progress.bySubSkill ??= {};
   progress.totalAnswered += 1;
   if (correct) progress.totalCorrect += 1;
   progress.bySection[question.section].answered += 1;
@@ -205,6 +431,11 @@ export async function submitAnswer(
   const skill = (progress.bySkill[question.skill] ??= { answered: 0, correct: 0 });
   skill.answered += 1;
   if (correct) skill.correct += 1;
+  if (question.subSkill) {
+    const ss = (progress.bySubSkill[question.subSkill] ??= { answered: 0, correct: 0 });
+    ss.answered += 1;
+    if (correct) ss.correct += 1;
+  }
   progress.updatedAt = Date.now();
 
   // Fire the response + progress writes concurrently — neither blocks picking
@@ -281,16 +512,18 @@ export async function submitAnswer(
   };
   writes.push(sessionRef.set(updatedSession));
 
-  // When a tutor-assigned set is finished, record results on the assignment.
-  if (updatedSession.status === "completed" && session.assignmentId) {
+  // Mirror live progress onto the assignment doc each answer, so the student's
+  // dashboard can show "Resume (3/10)" and the tutor can see in-progress sets.
+  if (session.assignmentId) {
+    const done = updatedSession.status === "completed";
     writes.push(
       adminDb.doc(`assignments/${session.assignmentId}`).set(
         {
-          status: "completed",
+          status: done ? "completed" : "assigned",
           answered: updatedSession.answered,
           correct: updatedSession.correct,
           totalTimeMs: updatedSession.totalTimeMs,
-          completedAt: Date.now(),
+          ...(done ? { completedAt: Date.now() } : {}),
         },
         { merge: true },
       ),

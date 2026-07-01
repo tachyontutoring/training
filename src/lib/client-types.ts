@@ -26,3 +26,25 @@ export interface GradeResultClient {
   next: PublicQuestion | null;
   finished: boolean;
 }
+
+// GET /api/session/:id — full state for the Bluebook-style runner.
+export interface SessionFullClient {
+  session: SessionDoc;
+  questions: PublicQuestion[];
+  answers: Record<string, AnswerKey>;
+  marked: string[];
+  currentIndex: number;
+}
+
+// One graded question, returned by POST /api/session/:id/submit.
+export interface SubmittedQuestionClient {
+  questionId: string;
+  yourAnswer: AnswerKey | null;
+  correctAnswer: AnswerKey;
+  correct: boolean;
+  explanation: string;
+}
+export interface SubmitResultClient {
+  session: SessionDoc;
+  results: SubmittedQuestionClient[];
+}

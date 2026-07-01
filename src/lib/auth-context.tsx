@@ -45,7 +45,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signUp(name: string, email: string, password: string) {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
-    if (name) await updateProfile(cred.user, { displayName: name });
+    if (name) {
+      await updateProfile(cred.user, { displayName: name });
+      // Force a token refresh so the new displayName lands in the ID token's
+      // `name` claim before /api/me creates the profile — otherwise the profile
+      // falls back to the email prefix and the tutor never sees the real name.
+      await cred.user.getIdToken(true);
+    }
   }
 
   async function logout() {

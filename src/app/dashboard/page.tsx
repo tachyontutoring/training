@@ -4,40 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useRequireAuth } from "@/lib/use-require-auth";
-import { emptyProgress, type ProgressStats, type TestType } from "@/lib/types";
+import { emptyProgress, type ProgressStats } from "@/lib/types";
 import type { Assignment } from "@/lib/client-types";
-
-type TestCard = {
-  type: TestType;
-  title: string;
-  blurb: string;
-  cls: string;
-  available: boolean;
-};
-
-const TESTS: TestCard[] = [
-  {
-    type: "reading",
-    title: "Reading & Writing",
-    blurb: "Adaptive drills across all 10 RW skills — evidence, inferences, words in context, transitions, and more.",
-    cls: "btn-primary",
-    available: true,
-  },
-  {
-    type: "math",
-    title: "Math",
-    blurb: "Coming soon — the Math bank is still being prepared.",
-    cls: "btn-primary",
-    available: false,
-  },
-  {
-    type: "full",
-    title: "Full Practice Test",
-    blurb: "Coming soon — combines Reading & Writing with Math.",
-    cls: "btn-primary",
-    available: false,
-  },
-];
 
 export default function DashboardPage() {
   const { user, loading } = useRequireAuth();
@@ -46,6 +14,7 @@ export default function DashboardPage() {
   const [progress, setProgress] = useState<ProgressStats>(emptyProgress());
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [starting, setStarting] = useState<string | null>(null);
+  const [startingTest, setStartingTest] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -70,7 +39,6 @@ export default function DashboardPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not start assignment");
-      sessionStorage.setItem(`session:${data.session.id}`, JSON.stringify(data));
       router.push(`/test/${data.session.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start assignment");
@@ -78,22 +46,20 @@ export default function DashboardPage() {
     }
   }
 
-  async function startTest(type: TestType) {
-    setStarting(type);
+  async function startPracticeTest() {
+    setStartingTest(true);
     setError("");
     try {
-      const res = await authedFetch("/api/session", {
+      const res = await authedFetch("/api/practice-test", {
         method: "POST",
-        body: JSON.stringify({ type }),
+        body: JSON.stringify({ blueprintId: "sat-practice-1" }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not start test");
-      // hand the first question to the test page without an extra round-trip
-      sessionStorage.setItem(`session:${data.session.id}`, JSON.stringify(data));
-      router.push(`/test/${data.session.id}`);
+      if (!res.ok) throw new Error(data.error || "Could not start practice test");
+      router.push(`/practice/${data.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start test");
-      setStarting(null);
+      setError(err instanceof Error ? err.message : "Could not start practice test");
+      setStartingTest(false);
     }
   }
 
@@ -126,90 +92,87 @@ export default function DashboardPage() {
         </button>
       </header>
 
-      <section className="mb-10 grid grid-cols-3 gap-4">
+      <section className="mb-10 max-w-xs">
         <Stat label="Questions answered" value={progress.totalAnswered} />
-        <Stat
-          label="Overall accuracy"
-          value={`${pct(progress.totalAnswered, progress.totalCorrect)}%`}
-        />
-        <Stat
-          label="Reading vs Math"
-          value={`${pct(
-            progress.bySection.reading.answered,
-            progress.bySection.reading.correct,
-          )}% / ${pct(
-            progress.bySection.math.answered,
-            progress.bySection.math.correct,
-          )}%`}
-        />
       </section>
 
-      {assignments.length > 0 && (
-        <section className="mb-10">
-          <h2 className="mb-4 font-display text-xl font-medium">Assigned by your tutor</h2>
-          <div className="space-y-3">
-            {assignments.map((a) => {
-              const done = a.status === "completed";
-              return (
-                <div
-                  key={a.id}
-                  className="card flex items-center justify-between"
-                >
-                  <div>
-                    <div className="font-medium">{a.title}</div>
-                    <div className="text-xs text-ink-faint">
-                      {a.questionIds.length} questions
-                      {done
-                        ? ` · scored ${pct(a.answered, a.correct)}%`
+      {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
+
+      <div className="card mb-10 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+        <div>
+          <h2 className="font-display text-xl font-medium">Full practice test</h2>
+          <p className="mt-1 text-sm text-ink-muted">
+            A timed, adaptive digital-SAT simulation — Reading &amp; Writing and Math, two modules each.
+          </p>
+        </div>
+        <button className="btn-primary shrink-0" disabled={startingTest} onClick={startPracticeTest}>
+          {startingTest ? "Starting…" : "Take a practice test"}
+        </button>
+      </div>
+
+      <h2 className="mb-4 font-display text-xl font-medium">Assigned by your tutor</h2>
+      {assignments.length === 0 ? (
+        <p className="card text-sm text-ink-muted">
+          No practice assigned yet. Your tutor will add sets here — check back after your next
+          session.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {assignments.map((a) => {
+            const done = a.status === "completed";
+            const inProgress = !done && a.answered > 0;
+            return (
+              <div
+                key={a.id}
+                className="card flex items-center justify-between"
+              >
+                <div>
+                  <div className="font-medium">{a.title}</div>
+                  <div className="text-xs text-ink-faint">
+                    {a.questionIds.length} questions
+                    {done
+                      ? ` · scored ${pct(a.answered, a.correct)}%`
+                      : inProgress
+                        ? ` · ${a.answered}/${a.questionIds.length} done`
                         : a.criteria.skills.length
                           ? ` · ${a.criteria.skills.join(", ")}`
                           : ""}
-                    </div>
                   </div>
-                  {done ? (
+                </div>
+                {done ? (
+                  <div className="flex items-center gap-3">
                     <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700">
                       Completed
                     </span>
-                  ) : (
-                    <button
-                      className="btn-primary"
-                      disabled={starting !== null}
-                      onClick={() => startAssignment(a)}
-                    >
-                      {starting === a.id ? "Starting…" : "Start"}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
+                    {a.sessionId && (
+                      <button
+                        className="btn-secondary"
+                        onClick={() => router.push(`/test/${a.sessionId}`)}
+                      >
+                        Review
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    className="btn-primary"
+                    disabled={starting !== null}
+                    onClick={() => startAssignment(a)}
+                  >
+                    {starting === a.id
+                      ? inProgress
+                        ? "Resuming…"
+                        : "Starting…"
+                      : inProgress
+                        ? "Resume"
+                        : "Start"}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
-
-      <h2 className="mb-4 font-display text-xl font-medium">Choose your practice</h2>
-      {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
-      <div className="grid gap-4 sm:grid-cols-3">
-        {TESTS.map((t) => (
-          <div
-            key={t.type}
-            className={`card flex flex-col ${t.available ? "" : "opacity-60"}`}
-          >
-            <h3 className="mb-1 font-display text-lg font-medium">{t.title}</h3>
-            <p className="mb-4 flex-1 text-sm text-ink-muted">{t.blurb}</p>
-            <button
-              className={`${t.cls} w-full`}
-              disabled={!t.available || starting !== null}
-              onClick={() => startTest(t.type)}
-            >
-              {!t.available
-                ? "Coming soon"
-                : starting === t.type
-                  ? "Starting…"
-                  : "Begin"}
-            </button>
-          </div>
-        ))}
-      </div>
     </main>
   );
 }
