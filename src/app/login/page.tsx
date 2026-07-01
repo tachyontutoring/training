@@ -35,7 +35,7 @@ export default function LoginPage() {
       <div className="relative mx-auto w-full max-w-md">
       <div className="mb-6 flex items-center gap-2.5">
         <span className="h-1.5 w-1.5 rounded-full bg-accent-600" />
-        <span className="mono-label">School of Athens</span>
+        <span className="mono-label">Tachyon</span>
       </div>
       <h1 className="font-display text-display-md font-medium text-ink">Welcome back</h1>
       <p className="mb-8 mt-2 text-ink-muted">Log in to continue your practice.</p>

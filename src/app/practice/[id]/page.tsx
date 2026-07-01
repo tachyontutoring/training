@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { MathText } from "@/components/MathText";
+import { predictedScore } from "@/lib/scoring";
 import type { AnswerKey, PublicQuestion } from "@/lib/client-types";
 
 type Meta = {
@@ -237,6 +238,7 @@ export default function PracticeTestPage({
     };
     const rw = bySection("reading");
     const math = bySection("math");
+    const score = predictedScore(rw.c, rw.a, math.c, math.a);
     const r = flat[reviewIdx];
     const rq = r;
     return (
@@ -257,14 +259,28 @@ export default function PracticeTestPage({
 
             <div className="mt-5 flex flex-wrap items-end gap-x-12 gap-y-5">
               <div>
-                <div className="text-5xl font-bold leading-none">{pct}%</div>
+                <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">
+                  Predicted score
+                </div>
+                <div className="text-5xl font-bold leading-none tabular-nums">{score.total}</div>
                 <div className="mt-1.5 text-xs text-slate-500">
-                  {view.totalCorrect} of {view.totalAnswered} correct
+                  out of 1600 · {pct}% correct ({view.totalCorrect}/{view.totalAnswered})
                 </div>
               </div>
-              <ScoreStat label="Reading & Writing" c={rw.c} a={rw.a} pct={rw.pct} />
-              <ScoreStat label="Math" c={math.c} a={math.a} pct={math.pct} />
+              <ScoreStat
+                label="Reading & Writing"
+                score={score.rw}
+                detail={`${rw.c}/${rw.a} correct · ${rw.pct}%`}
+              />
+              <ScoreStat
+                label="Math"
+                score={score.math}
+                detail={`${math.c}/${math.a} correct · ${math.pct}%`}
+              />
             </div>
+            <p className="mt-3 text-[11px] text-slate-400">
+              Estimated from accuracy — an approximation, not an official College Board score.
+            </p>
 
             <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {view.modules.map((m) => {
@@ -656,21 +672,20 @@ export default function PracticeTestPage({
 
 function ScoreStat({
   label,
-  c,
-  a,
-  pct,
+  score,
+  detail,
 }: {
   label: string;
-  c: number;
-  a: number;
-  pct: number;
+  score: number;
+  detail: string;
 }) {
   return (
     <div>
-      <div className="text-sm font-semibold text-slate-800">{label}</div>
-      <div className="mt-0.5 text-sm text-slate-500">
-        {c}/{a} correct · {pct}%
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+        {label}
       </div>
+      <div className="text-2xl font-bold leading-tight tabular-nums text-slate-800">{score}</div>
+      <div className="mt-0.5 text-xs text-slate-500">{detail}</div>
     </div>
   );
 }

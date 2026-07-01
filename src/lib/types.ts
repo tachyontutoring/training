@@ -1,4 +1,4 @@
-// Shared domain types for School of Athens.
+// Shared domain types for Tachyon.
 
 export type Section = "reading" | "math";
 export type TestType = "full" | "reading" | "math";

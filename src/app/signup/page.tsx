@@ -10,13 +10,23 @@ export default function SignupPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [confirmEmail, setConfirmEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) {
+      setError("Emails don't match.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords don't match.");
+      return;
+    }
     setBusy(true);
     try {
       await signUp(name, email, password);
@@ -35,7 +45,7 @@ export default function SignupPage() {
       <div className="relative mx-auto w-full max-w-md">
       <div className="mb-6 flex items-center gap-2.5">
         <span className="h-1.5 w-1.5 rounded-full bg-accent-600" />
-        <span className="mono-label">School of Athens</span>
+        <span className="mono-label">Tachyon</span>
       </div>
       <h1 className="font-display text-display-md font-medium text-ink">Create your account</h1>
       <p className="mb-8 mt-2 text-ink-muted">Start practicing in under a minute.</p>
@@ -62,12 +72,36 @@ export default function SignupPage() {
           />
         </div>
         <div>
+          <label className="mono-label mb-1.5 block">Confirm email</label>
+          <input
+            className="input"
+            type="email"
+            value={confirmEmail}
+            onChange={(e) => setConfirmEmail(e.target.value)}
+            autoComplete="email"
+            onPaste={(e) => e.preventDefault()}
+            required
+          />
+        </div>
+        <div>
           <label className="mono-label mb-1.5 block">Password</label>
           <input
             className="input"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            autoComplete="new-password"
+            minLength={6}
+            required
+          />
+        </div>
+        <div>
+          <label className="mono-label mb-1.5 block">Confirm password</label>
+          <input
+            className="input"
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
             autoComplete="new-password"
             minLength={6}
             required
