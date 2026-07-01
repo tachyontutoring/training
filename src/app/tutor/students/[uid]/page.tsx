@@ -28,10 +28,33 @@ type QPreview = {
   hasStimulus: boolean;
 };
 
+type PTSummary = {
+  id: string;
+  title: string;
+  status: "active" | "completed";
+  createdAt: number;
+  completedAt: number | null;
+  totalAnswered: number;
+  totalCorrect: number;
+  pct: number;
+  reading: { answered: number; correct: number; pct: number };
+  math: { answered: number; correct: number; pct: number };
+  modules: {
+    id: string;
+    title: string;
+    section: string;
+    tier: "easy" | "hard" | null;
+    answered: number;
+    correct: number;
+    total: number;
+  }[];
+};
+
 interface Detail {
   profile: UserProfile;
   progress: ProgressStats;
   assignments: Assignment[];
+  practiceTests: PTSummary[];
 }
 
 export default function StudentDetailPage({
@@ -320,6 +343,55 @@ export default function StudentDetailPage({
           value={`${pct(detail.progress.totalAnswered, detail.progress.totalCorrect)}%`}
         />
         <Stat label="Skills practiced" value={skillRows.length} />
+      </section>
+
+      {/* Practice tests */}
+      <section className="card mb-8">
+        <h2 className="mb-3 font-display text-lg font-medium">Practice tests</h2>
+        {detail.practiceTests.length === 0 ? (
+          <p className="text-sm text-ink-faint">No practice tests taken yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {detail.practiceTests.map((t) => (
+              <div key={t.id} className="rounded-lg border border-line p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-medium">{t.title}</div>
+                  {t.status === "completed" ? (
+                    <span className="shrink-0 text-sm font-semibold text-accent-700">
+                      {t.pct}% · {t.totalCorrect}/{t.totalAnswered}
+                    </span>
+                  ) : (
+                    <span className="shrink-0 text-sm text-amber-600">In progress</span>
+                  )}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-muted">
+                  <span>
+                    R&amp;W {t.reading.correct}/{t.reading.answered} ({t.reading.pct}%)
+                  </span>
+                  <span>
+                    Math {t.math.correct}/{t.math.answered} ({t.math.pct}%)
+                  </span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {t.modules.map((m) => {
+                    const short = m.title
+                      .replace("Reading & Writing — Module ", "R&W M")
+                      .replace("Math — Module ", "Math M");
+                    return (
+                      <span
+                        key={m.id}
+                        className="rounded border border-line px-2 py-0.5 text-[11px] text-ink-soft"
+                      >
+                        {short}
+                        {m.tier ? ` · ${m.tier}` : ""}: {m.correct}/{m.total}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Per-skill breakdown — click a skill to drill into subskills */}

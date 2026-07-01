@@ -236,6 +236,72 @@ async function buildView(session: PracticeTestSession): Promise<PTView> {
   };
 }
 
+// Compact summary of a student's practice test(s), for the tutor's view.
+export interface PTSectionScore {
+  answered: number;
+  correct: number;
+  pct: number;
+}
+export interface PracticeTestSummary {
+  id: string;
+  title: string;
+  status: "active" | "completed";
+  createdAt: number;
+  completedAt: number | null;
+  totalAnswered: number;
+  totalCorrect: number;
+  pct: number;
+  reading: PTSectionScore;
+  math: PTSectionScore;
+  modules: {
+    id: string;
+    title: string;
+    section: string;
+    tier: "easy" | "hard" | null;
+    answered: number;
+    correct: number;
+    total: number;
+  }[];
+}
+
+export async function listPracticeSummaries(
+  studentId: string,
+): Promise<PracticeTestSummary[]> {
+  const snap = await adminDb.collection(`users/${studentId}/practiceTests`).get();
+  const score = (mods: PTModuleState[], sec: string): PTSectionScore => {
+    const m = mods.filter((x) => x.section === sec);
+    const answered = m.reduce((s, x) => s + x.answered, 0);
+    const correct = m.reduce((s, x) => s + x.correct, 0);
+    return { answered, correct, pct: answered ? Math.round((correct / answered) * 100) : 0 };
+  };
+  return snap.docs
+    .map((d) => {
+      const s = d.data() as PracticeTestSession;
+      return {
+        id: s.id,
+        title: s.title,
+        status: s.status,
+        createdAt: s.createdAt,
+        completedAt: s.completedAt ?? null,
+        totalAnswered: s.totalAnswered,
+        totalCorrect: s.totalCorrect,
+        pct: s.totalAnswered ? Math.round((s.totalCorrect / s.totalAnswered) * 100) : 0,
+        reading: score(s.modules, "reading"),
+        math: score(s.modules, "math"),
+        modules: s.modules.map((m) => ({
+          id: m.id,
+          title: m.title,
+          section: m.section,
+          tier: m.tier,
+          answered: m.answered,
+          correct: m.correct,
+          total: m.questionIds?.length ?? 0,
+        })),
+      };
+    })
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
 export async function getPracticeTest(uid: string, id: string): Promise<PTView | null> {
   const snap = await ref(uid, id).get();
   if (!snap.exists) return null;

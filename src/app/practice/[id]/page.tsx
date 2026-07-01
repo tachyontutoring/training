@@ -241,44 +241,51 @@ export default function PracticeTestPage({
     const rq = r;
     return (
       <div className="flex min-h-screen flex-col bg-white font-sans text-slate-900">
-        <header className="border-b border-slate-200 px-6 py-5">
+        <header className="border-b border-slate-200 px-6 py-6">
           <div className="mx-auto max-w-3xl">
-            <p className="text-xs font-semibold uppercase tracking-widest text-accent-600">
-              {view.title} · Complete
-            </p>
-            <div className="mt-2 flex flex-wrap items-end gap-x-8 gap-y-2">
-              <div>
-                <div className="text-4xl font-bold">{pct}%</div>
-                <div className="text-xs text-slate-500">
-                  {view.totalCorrect} of {view.totalAnswered} correct
-                </div>
-              </div>
-              <div className="text-sm">
-                <div className="font-semibold">Reading &amp; Writing</div>
-                <div className="text-slate-500">
-                  {rw.c}/{rw.a} · {rw.pct}%
-                </div>
-              </div>
-              <div className="text-sm">
-                <div className="font-semibold">Math</div>
-                <div className="text-slate-500">
-                  {math.c}/{math.a} · {math.pct}%
-                </div>
-              </div>
+            <div className="flex items-start justify-between gap-4">
+              <p className="text-xs font-semibold uppercase tracking-widest text-accent-600">
+                {view.title} · Complete
+              </p>
               <Link
                 href="/dashboard"
-                className="ml-auto rounded-md bg-accent-600 px-4 py-2 text-sm font-medium text-white hover:bg-accent-700"
+                className="shrink-0 rounded-md bg-accent-600 px-4 py-2 text-sm font-medium text-white hover:bg-accent-700"
               >
                 Done
               </Link>
             </div>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs">
-              {view.modules.map((m) => (
-                <span key={m.id} className="rounded border border-slate-200 px-2 py-1 text-slate-600">
-                  {m.title.replace("—", "·")}: {m.correct}/{m.total}
-                  {m.tier ? ` (${m.tier})` : ""}
-                </span>
-              ))}
+
+            <div className="mt-5 flex flex-wrap items-end gap-x-12 gap-y-5">
+              <div>
+                <div className="text-5xl font-bold leading-none">{pct}%</div>
+                <div className="mt-1.5 text-xs text-slate-500">
+                  {view.totalCorrect} of {view.totalAnswered} correct
+                </div>
+              </div>
+              <ScoreStat label="Reading & Writing" c={rw.c} a={rw.a} pct={rw.pct} />
+              <ScoreStat label="Math" c={math.c} a={math.a} pct={math.pct} />
+            </div>
+
+            <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {view.modules.map((m) => {
+                const short = m.title
+                  .replace("Reading & Writing — Module ", "R&W M")
+                  .replace("Math — Module ", "Math M");
+                return (
+                  <div
+                    key={m.id}
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                  >
+                    <div className="text-[11px] font-medium text-slate-500">
+                      {short}
+                      {m.tier ? ` · ${m.tier}` : ""}
+                    </div>
+                    <div className="mt-0.5 text-sm font-semibold text-slate-800">
+                      {m.correct}/{m.total}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </header>
@@ -643,6 +650,27 @@ export default function PracticeTestPage({
           )}
         </div>
       </footer>
+    </div>
+  );
+}
+
+function ScoreStat({
+  label,
+  c,
+  a,
+  pct,
+}: {
+  label: string;
+  c: number;
+  a: number;
+  pct: number;
+}) {
+  return (
+    <div>
+      <div className="text-sm font-semibold text-slate-800">{label}</div>
+      <div className="mt-0.5 text-sm text-slate-500">
+        {c}/{a} correct · {pct}%
+      </div>
     </div>
   );
 }

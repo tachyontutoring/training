@@ -4,6 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { getProfile, type AuthedUser } from "@/lib/server-auth";
 import { sampleByCriteria, getQuestionById } from "@/lib/question-bank";
+import { listPracticeSummaries } from "@/lib/practice-service";
 import {
   emptyProgress,
   type Assignment,
@@ -204,6 +205,8 @@ export async function getStudentDetail(tutorId: string, studentId: string) {
     .map((d) => ({ id: d.id, ...(d.data() as Omit<Assignment, "id">) }))
     .sort((a, b) => b.createdAt - a.createdAt);
 
+  const practiceTests = await listPracticeSummaries(studentId);
+
   // Resolve the real name from Auth and heal the stored profile if it was stale.
   const authName = await authDisplayName(studentId);
   if (authName && authName !== profile.displayName) {
@@ -211,7 +214,7 @@ export async function getStudentDetail(tutorId: string, studentId: string) {
     profile.displayName = authName;
   }
 
-  return { profile, progress, assignments };
+  return { profile, progress, assignments, practiceTests };
 }
 
 // Let a tutor set/correct a student's display name (they own the roster entry).
