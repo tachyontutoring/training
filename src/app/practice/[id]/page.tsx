@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { MathText } from "@/components/MathText";
+import { GridInInput, GridInReview } from "@/components/GridIn";
 import { predictedScore } from "@/lib/scoring";
 import type { AnswerKey, PublicQuestion } from "@/lib/client-types";
 
@@ -27,11 +28,11 @@ type Current = {
   timeMs: number;
   tier: "easy" | "hard" | null;
   questions: PublicQuestion[];
-  answers: Record<string, AnswerKey>;
+  answers: Record<string, string>;
 };
 type ReviewItem = PublicQuestion & {
-  yourAnswer: AnswerKey | null;
-  correctAnswer: AnswerKey;
+  yourAnswer: string | null;
+  correctAnswer: string;
   isCorrect: boolean;
   explanation: string;
 };
@@ -90,7 +91,7 @@ export default function PracticeTestPage({
 
   // module runner state
   const [idx, setIdx] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, AnswerKey>>({});
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [marked, setMarked] = useState<Set<string>>(new Set());
   const [eliminated, setEliminated] = useState<Record<string, AnswerKey[]>>({});
   const [crossOut, setCrossOut] = useState(false);
@@ -357,31 +358,39 @@ export default function PracticeTestPage({
             <p className="mb-4 text-[17px] font-medium leading-relaxed">
               <Q text={rq.prompt} math={rq.section === "math"} />
             </p>
-            <div className="space-y-2">
-              {rq.choices.map((c) => {
-                const key = c.key as AnswerKey;
-                const isCorrect = rq.correctAnswer === key;
-                const isYours = rq.yourAnswer === key;
-                let cls = "flex items-center gap-3 rounded-lg border px-4 py-2.5 text-[16px]";
-                if (isCorrect) cls += " border-green-600 bg-green-50";
-                else if (isYours) cls += " border-rose-500 bg-rose-50";
-                else cls += " border-slate-200";
-                return (
-                  <div key={key} className={cls}>
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-400 text-sm font-semibold">
-                      {key}
-                    </span>
-                    <span className="flex-1">
-                      <Q text={c.text} math={rq.section === "math"} />
-                    </span>
-                    {isCorrect && <span className="text-xs font-semibold text-green-700">Correct</span>}
-                    {isYours && !isCorrect && (
-                      <span className="text-xs font-semibold text-rose-700">Your answer</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            {rq.type === "grid_in" ? (
+              <GridInReview
+                your={rq.yourAnswer}
+                correct={rq.correctAnswer}
+                isCorrect={rq.isCorrect}
+              />
+            ) : (
+              <div className="space-y-2">
+                {rq.choices.map((c) => {
+                  const key = c.key as AnswerKey;
+                  const isCorrect = rq.correctAnswer === key;
+                  const isYours = rq.yourAnswer === key;
+                  let cls = "flex items-center gap-3 rounded-lg border px-4 py-2.5 text-[16px]";
+                  if (isCorrect) cls += " border-green-600 bg-green-50";
+                  else if (isYours) cls += " border-rose-500 bg-rose-50";
+                  else cls += " border-slate-200";
+                  return (
+                    <div key={key} className={cls}>
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-400 text-sm font-semibold">
+                        {key}
+                      </span>
+                      <span className="flex-1">
+                        <Q text={c.text} math={rq.section === "math"} />
+                      </span>
+                      {isCorrect && <span className="text-xs font-semibold text-green-700">Correct</span>}
+                      {isYours && !isCorrect && (
+                        <span className="text-xs font-semibold text-rose-700">Your answer</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Explanation
@@ -455,6 +464,7 @@ export default function PracticeTestPage({
   // ---------- Module runner ----------
   const q = cur.questions[idx];
   const isMath = q.section === "math";
+  const isGridIn = q.type === "grid_in";
   const timeLeft = deadlineRef.current - (tick || Date.now());
   const elim = new Set(eliminated[q.id] ?? []);
   const total = cur.questions.length;
@@ -535,72 +545,81 @@ export default function PracticeTestPage({
                   Mark for Review
                 </button>
               </div>
-              <button
-                onClick={() => setCrossOut((v) => !v)}
-                className={`rounded border px-2 py-1 text-xs font-semibold ${
-                  crossOut
-                    ? "border-accent-600 bg-accent-50 text-accent-600"
-                    : "border-slate-300 text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                <span className="line-through">ABC</span>
-              </button>
+              {!isGridIn && (
+                <button
+                  onClick={() => setCrossOut((v) => !v)}
+                  className={`rounded border px-2 py-1 text-xs font-semibold ${
+                    crossOut
+                      ? "border-accent-600 bg-accent-50 text-accent-600"
+                      : "border-slate-300 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="line-through">ABC</span>
+                </button>
+              )}
             </div>
 
             <p className="mb-5 text-[17px] font-medium leading-relaxed">
               <Q text={q.prompt} math={isMath} />
             </p>
 
-            <div className="space-y-3">
-              {q.choices.map((c) => {
-                const key = c.key as AnswerKey;
-                const isSel = answers[q.id] === key;
-                const isCrossed = elim.has(key);
-                let box =
-                  "relative flex items-center gap-3 rounded-lg border px-4 py-3 text-left text-[16px] transition-colors";
-                if (isSel) box += " border-accent-600 bg-accent-50";
-                else box += " border-slate-300 hover:border-slate-400";
-                return (
-                  <div key={key} className="flex items-center gap-2">
-                    <button
-                      className={`${box} flex-1 ${isCrossed ? "opacity-40" : ""}`}
-                      disabled={isCrossed && !isSel}
-                      onClick={() =>
-                        !isCrossed && setAnswers((prev) => ({ ...prev, [q.id]: key }))
-                      }
-                    >
-                      <span
-                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-sm font-semibold ${
-                          isSel
-                            ? "border-accent-600 bg-accent-600 text-white"
-                            : "border-slate-400 text-slate-700"
-                        }`}
-                      >
-                        {key}
-                      </span>
-                      <span className={isCrossed ? "line-through" : ""}>
-                        <Q text={c.text} math={isMath} />
-                      </span>
-                    </button>
-                    {crossOut && (
+            {isGridIn ? (
+              <GridInInput
+                value={answers[q.id] ?? ""}
+                onChange={(v) => setAnswers((prev) => ({ ...prev, [q.id]: v }))}
+              />
+            ) : (
+              <div className="space-y-3">
+                {q.choices.map((c) => {
+                  const key = c.key as AnswerKey;
+                  const isSel = answers[q.id] === key;
+                  const isCrossed = elim.has(key);
+                  let box =
+                    "relative flex items-center gap-3 rounded-lg border px-4 py-3 text-left text-[16px] transition-colors";
+                  if (isSel) box += " border-accent-600 bg-accent-50";
+                  else box += " border-slate-300 hover:border-slate-400";
+                  return (
+                    <div key={key} className="flex items-center gap-2">
                       <button
+                        className={`${box} flex-1 ${isCrossed ? "opacity-40" : ""}`}
+                        disabled={isCrossed && !isSel}
                         onClick={() =>
-                          setEliminated((prev) => {
-                            const s = new Set(prev[q.id] ?? []);
-                            if (s.has(key)) s.delete(key);
-                            else s.add(key);
-                            return { ...prev, [q.id]: [...s] };
-                          })
+                          !isCrossed && setAnswers((prev) => ({ ...prev, [q.id]: key }))
                         }
-                        className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 text-xs font-semibold text-slate-500 hover:bg-slate-50"
                       >
-                        <span className="line-through">{key}</span>
+                        <span
+                          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-sm font-semibold ${
+                            isSel
+                              ? "border-accent-600 bg-accent-600 text-white"
+                              : "border-slate-400 text-slate-700"
+                          }`}
+                        >
+                          {key}
+                        </span>
+                        <span className={isCrossed ? "line-through" : ""}>
+                          <Q text={c.text} math={isMath} />
+                        </span>
                       </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                      {crossOut && (
+                        <button
+                          onClick={() =>
+                            setEliminated((prev) => {
+                              const s = new Set(prev[q.id] ?? []);
+                              if (s.has(key)) s.delete(key);
+                              else s.add(key);
+                              return { ...prev, [q.id]: [...s] };
+                            })
+                          }
+                          className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 text-xs font-semibold text-slate-500 hover:bg-slate-50"
+                        >
+                          <span className="line-through">{key}</span>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </section>
       </main>

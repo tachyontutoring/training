@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
+import { PasswordInput } from "@/components/PasswordInput";
 
 export default function LoginPage() {
   const { signIn, authedFetch } = useAuth();
@@ -53,9 +54,7 @@ export default function LoginPage() {
         </div>
         <div>
           <label className="mono-label mb-1.5 block">Password</label>
-          <input
-            className="input"
-            type="password"
+          <PasswordInput
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"

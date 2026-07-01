@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
+import { PasswordInput } from "@/components/PasswordInput";
 
 export default function TutorSignupPage() {
   const { signUp, signIn, authedFetch } = useAuth();
@@ -73,11 +74,11 @@ export default function TutorSignupPage() {
         </div>
         <div>
           <label className="mono-label mb-1.5 block">Password</label>
-          <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} required />
+          <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={6} required />
         </div>
         <div>
           <label className="mono-label mb-1.5 block">Confirm password</label>
-          <input className="input" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} minLength={6} required />
+          <PasswordInput value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" minLength={6} required />
         </div>
         <div>
           <label className="mono-label mb-1.5 block">Tutor access code</label>

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireTutor, AuthError, ForbiddenError } from "@/lib/server-auth";
-import { createAssignment } from "@/lib/tutor-service";
+import {
+  createAssignment,
+  createPracticeTestAssignment,
+} from "@/lib/tutor-service";
 import type { AssignmentCriteria, Section } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -11,7 +14,24 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const { studentId, title, criteria } = body ?? {};
 
-    if (typeof studentId !== "string" || !criteria) {
+    if (typeof studentId !== "string") {
+      return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+    }
+
+    // Full practice-test assignment (blueprint-based) — no criteria needed.
+    if (body?.kind === "practice_test") {
+      const blueprintId =
+        typeof body?.blueprintId === "string" ? body.blueprintId : "sat-practice-1";
+      const assignment = await createPracticeTestAssignment(
+        tutorId,
+        studentId,
+        typeof title === "string" ? title : "",
+        blueprintId,
+      );
+      return NextResponse.json({ assignment });
+    }
+
+    if (!criteria) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 

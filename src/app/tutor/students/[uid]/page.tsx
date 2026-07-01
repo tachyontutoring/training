@@ -98,6 +98,10 @@ export default function StudentDetailPage({
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
 
+  // Assign-a-full-practice-test card.
+  const [ptTitle, setPtTitle] = useState("");
+  const [ptBusy, setPtBusy] = useState(false);
+
   // which skill rows are expanded to show subskill breakdown
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
   function toggleExpand(skill: string) {
@@ -275,6 +279,32 @@ export default function StudentDetailPage({
       setFormError(err instanceof Error ? err.message : "Could not assign");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function assignPracticeTest() {
+    setFormError("");
+    setNotice("");
+    setPtBusy(true);
+    try {
+      const res = await authedFetch("/api/tutor/assignments", {
+        method: "POST",
+        body: JSON.stringify({
+          studentId: uid,
+          kind: "practice_test",
+          blueprintId: "sat-practice-1",
+          title: ptTitle,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not assign practice test");
+      setNotice(`Assigned practice test “${data.assignment.title}”.`);
+      setPtTitle("");
+      load();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Could not assign practice test");
+    } finally {
+      setPtBusy(false);
     }
   }
 
@@ -524,6 +554,35 @@ export default function StudentDetailPage({
         )}
       </section>
 
+      {/* Assign a full practice test */}
+      <section className="card mb-8">
+        <h2 className="mb-1 font-display text-lg font-medium">Assign a full practice test</h2>
+        <p className="mb-3 text-sm text-ink-muted">
+          A timed, adaptive digital-SAT simulation — Reading &amp; Writing and Math,
+          two modules each (98 questions). The student takes it from their dashboard;
+          the score lands back here when they finish.
+        </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex-1">
+            <label className="mono-label mb-1.5 block">Title (optional)</label>
+            <input
+              className="input"
+              value={ptTitle}
+              onChange={(e) => setPtTitle(e.target.value)}
+              placeholder="Full Practice Test 1"
+            />
+          </div>
+          <button
+            type="button"
+            className="btn-primary shrink-0"
+            disabled={ptBusy}
+            onClick={assignPracticeTest}
+          >
+            {ptBusy ? "Assigning…" : "Assign practice test"}
+          </button>
+        </div>
+      </section>
+
       {/* Assign a practice set */}
       <section className="card mb-8">
         <h2 className="mb-3 font-display text-lg font-medium">Assign a practice set</h2>
@@ -740,43 +799,57 @@ export default function StudentDetailPage({
           <p className="text-sm text-ink-faint">Nothing assigned yet.</p>
         ) : (
           <div className="space-y-2">
-            {detail.assignments.map((a) => (
-              <div
-                key={a.id}
-                className="flex items-center justify-between rounded-lg border border-line px-4 py-3"
-              >
-                <div>
-                  <div className="font-medium">{a.title}</div>
-                  <div className="text-xs text-ink-faint">
-                    {a.questionIds.length} questions
-                    {a.criteria.skills.length
-                      ? ` · ${a.criteria.skills.join(", ")}`
-                      : " · any skill"}
+            {detail.assignments.map((a) => {
+              const isTest = a.kind === "practice_test";
+              return (
+                <div
+                  key={a.id}
+                  className="flex items-center justify-between rounded-lg border border-line px-4 py-3"
+                >
+                  <div>
+                    <div className="font-medium">{a.title}</div>
+                    <div className="text-xs text-ink-faint">
+                      {isTest
+                        ? "Full practice test · 98 questions"
+                        : `${a.questionIds.length} questions` +
+                          (a.criteria.skills.length
+                            ? ` · ${a.criteria.skills.join(", ")}`
+                            : " · any skill")}
+                    </div>
+                    {!isTest && a.answered > 0 && a.correct < a.answered && (
+                      <button
+                        onClick={() => openMistakes("assignment", a.id)}
+                        className="mt-1 text-xs font-medium text-accent-700 underline"
+                      >
+                        View wrong questions →
+                      </button>
+                    )}
+                    {isTest && a.practiceTestId && a.answered > 0 && a.correct < a.answered && (
+                      <button
+                        onClick={() => openMistakes("practice", a.practiceTestId!)}
+                        className="mt-1 text-xs font-medium text-accent-700 underline"
+                      >
+                        View wrong questions →
+                      </button>
+                    )}
                   </div>
-                  {a.answered > 0 && a.correct < a.answered && (
-                    <button
-                      onClick={() => openMistakes("assignment", a.id)}
-                      className="mt-1 text-xs font-medium text-accent-700 underline"
-                    >
-                      View wrong questions →
-                    </button>
-                  )}
+                  <div className="text-right text-sm">
+                    {a.status === "completed" ? (
+                      <span className="font-medium text-green-700">
+                        {pct(a.answered, a.correct)}% ({a.correct}/{a.answered})
+                      </span>
+                    ) : a.answered > 0 ? (
+                      <span className="text-amber-600">
+                        In progress
+                        {isTest ? ` · ${a.answered} answered` : ` · ${a.answered}/${a.questionIds.length}`}
+                      </span>
+                    ) : (
+                      <span className="text-ink-faint">Not started</span>
+                    )}
+                  </div>
                 </div>
-                <div className="text-right text-sm">
-                  {a.status === "completed" ? (
-                    <span className="font-medium text-green-700">
-                      {pct(a.answered, a.correct)}% ({a.correct}/{a.answered})
-                    </span>
-                  ) : a.answered > 0 ? (
-                    <span className="text-amber-600">
-                      In progress · {a.answered}/{a.questionIds.length}
-                    </span>
-                  ) : (
-                    <span className="text-ink-faint">Not started</span>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>

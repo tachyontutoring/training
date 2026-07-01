@@ -14,12 +14,12 @@ export type {
   AssignmentCriteria,
 } from "@/lib/types";
 
-import type { AnswerKey, PublicQuestion, SessionDoc } from "@/lib/types";
+import type { PublicQuestion, SessionDoc } from "@/lib/types";
 
 // Matches the JSON returned by POST /api/answer.
 export interface GradeResultClient {
   correct: boolean;
-  correctAnswer: AnswerKey;
+  correctAnswer: string;
   explanation: string;
   coaching: string;
   session: SessionDoc;
@@ -31,7 +31,7 @@ export interface GradeResultClient {
 export interface SessionFullClient {
   session: SessionDoc;
   questions: PublicQuestion[];
-  answers: Record<string, AnswerKey>;
+  answers: Record<string, string>;
   marked: string[];
   currentIndex: number;
 }
@@ -39,8 +39,8 @@ export interface SessionFullClient {
 // One graded question, returned by POST /api/session/:id/submit.
 export interface SubmittedQuestionClient {
   questionId: string;
-  yourAnswer: AnswerKey | null;
-  correctAnswer: AnswerKey;
+  yourAnswer: string | null;
+  correctAnswer: string;
   correct: boolean;
   explanation: string;
 }

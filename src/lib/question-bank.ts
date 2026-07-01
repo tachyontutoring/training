@@ -45,6 +45,8 @@ async function load(): Promise<void> {
     }));
     source = "Firestore (no snapshot found — run `pnpm seed`)";
   }
+  // Legacy records predate the `type` field — default them to multiple choice.
+  for (const q of all) if (!q.type) q.type = "mcq";
   state.cache = all;
   state.byId = new Map(all.map((q) => [q.id, q]));
   state.loadedAt = Date.now();

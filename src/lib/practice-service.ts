@@ -10,10 +10,11 @@ import {
 import {
   emptyProgress,
   toPublicQuestion,
-  type AnswerKey,
+  type Assignment,
   type ProgressStats,
   type PublicQuestion,
 } from "@/lib/types";
+import { gradeAnswer, isValidDraftAnswer } from "@/lib/grid-in";
 import {
   getBlueprint,
   type PracticeModule,
@@ -21,8 +22,6 @@ import {
   type PTModuleState,
   type SelectionRule,
 } from "@/lib/practice-tests";
-
-const ANSWER_KEYS = new Set<AnswerKey>(["A", "B", "C", "D"]);
 
 function ref(uid: string, id: string) {
   return adminDb.doc(`users/${uid}/practiceTests/${id}`);
@@ -71,6 +70,7 @@ async function assembleModule(
 export async function createPracticeTest(
   uid: string,
   blueprintId: string,
+  assignmentId?: string | null,
 ): Promise<string> {
   const bp = getBlueprint(blueprintId);
   if (!bp) throw new Error("Unknown practice test.");
@@ -103,9 +103,35 @@ export async function createPracticeTest(
     totalAnswered: 0,
     totalCorrect: 0,
     completedAt: null,
+    assignmentId: assignmentId ?? null,
   };
   await docRef.set(session);
   return docRef.id;
+}
+
+// Start (or resume) the practice test a tutor assigned. Enforces that the
+// assignment belongs to the caller and is a practice-test assignment — this is
+// the ONLY way a practice test gets created, so students can't self-assign.
+export async function startAssignedPracticeTest(
+  uid: string,
+  assignmentId: string,
+): Promise<string> {
+  const aRef = adminDb.doc(`assignments/${assignmentId}`);
+  const aSnap = await aRef.get();
+  if (!aSnap.exists) throw new Error("Assignment not found.");
+  const a = aSnap.data() as Assignment;
+  if (a.studentId !== uid) throw new Error("This assignment isn't yours.");
+  if (a.kind !== "practice_test" || !a.blueprintId) {
+    throw new Error("That assignment is not a practice test.");
+  }
+  // Resume the existing test if one was already created and still exists.
+  if (a.practiceTestId) {
+    const existing = await ref(uid, a.practiceTestId).get();
+    if (existing.exists) return a.practiceTestId;
+  }
+  const id = await createPracticeTest(uid, a.blueprintId, assignmentId);
+  await aRef.set({ practiceTestId: id, status: "assigned" }, { merge: true });
+  return id;
 }
 
 // ---- client-facing view -----------------------------------------------------
@@ -128,11 +154,11 @@ export interface PTCurrent {
   timeMs: number;
   tier: "easy" | "hard" | null;
   questions: PublicQuestion[];
-  answers: Record<string, AnswerKey>;
+  answers: Record<string, string>;
 }
 export interface PTReviewItem extends PublicQuestion {
-  yourAnswer: AnswerKey | null;
-  correctAnswer: AnswerKey;
+  yourAnswer: string | null;
+  correctAnswer: string;
   isCorrect: boolean;
   explanation: string;
 }
@@ -202,12 +228,12 @@ async function buildView(session: PracticeTestSession): Promise<PTView> {
       for (const id of m.questionIds ?? []) {
         const q = await getQuestionById(id);
         if (!q) continue;
-        const your = m.answers?.[id] ?? null;
+        const { your, correct } = gradeAnswer(q, m.answers?.[id]);
         items.push({
           ...toPublicQuestion(q),
           yourAnswer: your,
           correctAnswer: q.correctAnswer,
-          isCorrect: your != null && your === q.correctAnswer,
+          isCorrect: correct,
           explanation: q.explanation,
         });
       }
@@ -320,9 +346,11 @@ export async function savePracticeDraft(
   if (session.status === "completed") return;
   const cur = session.modules[session.currentModuleIndex];
   const valid = new Set(cur.questionIds ?? []);
-  const clean: Record<string, AnswerKey> = {};
+  const clean: Record<string, string> = {};
   for (const [qid, a] of Object.entries(answers ?? {})) {
-    if (valid.has(qid) && ANSWER_KEYS.has(a as AnswerKey)) clean[qid] = a as AnswerKey;
+    if (!valid.has(qid)) continue;
+    const q = await getQuestionById(qid);
+    if (q && isValidDraftAnswer(q.type, a)) clean[qid] = a;
   }
   session.modules[session.currentModuleIndex] = { ...cur, answers: clean };
   await r.set(session);
@@ -348,19 +376,17 @@ export async function submitModule(
   const cur = session.modules[session.currentModuleIndex];
   const progress = await getProgress(uid);
 
-  const graded: Record<string, AnswerKey> = {};
+  const graded: Record<string, string> = {};
   let answered = 0;
   let correct = 0;
   let timeSpent = 0;
   for (const qid of cur.questionIds ?? []) {
-    const raw = answers[qid];
-    const your = ANSWER_KEYS.has(raw as AnswerKey) ? (raw as AnswerKey) : null;
-    if (your == null) continue;
-    graded[qid] = your;
     const q = await getQuestionById(qid);
     if (!q) continue;
+    const { your, correct: ok } = gradeAnswer(q, answers[qid]);
+    if (your == null) continue;
+    graded[qid] = your;
     answered += 1;
-    const ok = your === q.correctAnswer;
     if (ok) correct += 1;
     timeSpent += Math.max(0, Math.floor(times[qid] ?? 0));
     progress.totalAnswered += 1;
@@ -398,12 +424,29 @@ export async function submitModule(
     session.completedAt = Date.now();
   }
 
-  await Promise.all([
+  const writes: Promise<unknown>[] = [
     r.set(session),
     adminDb
       .doc(`users/${uid}`)
       .set({ progress, updatedAt: FieldValue.serverTimestamp() }, { merge: true }),
-  ]);
+  ];
+  // Mirror progress/score onto the assignment so the tutor's roster + student's
+  // dashboard reflect an assigned practice test as it's worked and completed.
+  if (session.assignmentId) {
+    const done = session.status === "completed";
+    writes.push(
+      adminDb.doc(`assignments/${session.assignmentId}`).set(
+        {
+          status: done ? "completed" : "assigned",
+          answered: session.totalAnswered,
+          correct: session.totalCorrect,
+          ...(done ? { completedAt: Date.now() } : {}),
+        },
+        { merge: true },
+      ),
+    );
+  }
+  await Promise.all(writes);
 
   return buildView(session);
 }

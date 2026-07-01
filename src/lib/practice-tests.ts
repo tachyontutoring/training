@@ -10,7 +10,7 @@
 // from the bank inventory + official SAT domain weights). They are meant to be
 // tweaked — edit the *_MIX tables and nothing else needs to change.
 // ---------------------------------------------------------------------------
-import type { AnswerKey, Section } from "./types";
+import type { Section } from "./types";
 
 export const DIFFICULTY = { EASY: 2, MEDIUM: 3, HARD: 4 } as const;
 export type Difficulty = (typeof DIFFICULTY)[keyof typeof DIFFICULTY];
@@ -93,45 +93,64 @@ const RW_M2_HARD: SkillDifficultyMix = {
   "Cross-Text Connections": { 4: 1 },
 };
 
-// Math (21 per module — bump toward 22 once Problem-Solving/Data-Analysis
-// content exists in the bank; it's currently absent).
+// Math (22 per module, matching the real digital SAT). Domain weights follow
+// College Board: Algebra ~36% (8), Advanced Math ~36% (8), Problem-Solving &
+// Data Analysis ~14% (3), Geometry & Trig ~14% (3). Skill strings must match the
+// bank exactly (note the source typo "propor tional"). Both mcq and grid-in
+// questions are pooled per skill×difficulty, so grid-in questions mix in
+// naturally (~a quarter of math, as on the real test).
 const MATH_M1: SkillDifficultyMix = {
-  "Nonlinear functions": { 2: 1, 3: 1, 4: 1 },
+  // Algebra (8)
   "Linear functions": { 2: 1, 3: 1 },
-  "Nonlinear equations in one variable and systems of equations in two variables": { 2: 1, 3: 1 },
-  "Equivalent expressions": { 2: 1, 3: 1 },
   "Linear equations in two variables": { 2: 1, 3: 1 },
-  "Systems of two linear equations in two variables": { 2: 1, 3: 1 },
   "Linear equations in one variable": { 2: 1, 3: 1 },
+  "Systems of two linear equations in two variables": { 3: 1 },
+  "Linear inequalities in one or two variables": { 2: 1 },
+  // Advanced Math (8)
+  "Nonlinear functions": { 2: 1, 3: 1, 4: 1 },
+  "Nonlinear equations in one variable and systems of equations in two variables": { 2: 1, 3: 1, 4: 1 },
+  "Equivalent expressions": { 2: 1, 3: 1 },
+  // Problem-Solving & Data Analysis (3)
+  "Percentages": { 2: 1, 3: 1 },
+  "Ratios, rates, propor tional relationships, and units": { 3: 1 },
+  // Geometry & Trigonometry (3)
   "Area and volume": { 2: 1, 3: 1 },
-  "Right triangles and trigonometry": { 2: 1, 3: 1 },
-  "Linear inequalities in one or two variables": { 4: 1 },
-  "Lines, angles, and triangles": { 4: 1 },
+  "Right triangles and trigonometry": { 3: 1 },
 };
 const MATH_M2_EASY: SkillDifficultyMix = {
-  "Nonlinear functions": { 2: 2, 3: 1 },
-  "Linear functions": { 2: 1, 3: 1 },
-  "Nonlinear equations in one variable and systems of equations in two variables": { 2: 1, 3: 1 },
-  "Equivalent expressions": { 2: 1, 3: 1 },
+  // Algebra (8)
+  "Linear functions": { 2: 2 },
   "Linear equations in two variables": { 2: 1, 3: 1 },
-  "Systems of two linear equations in two variables": { 2: 1, 3: 1 },
   "Linear equations in one variable": { 2: 1, 3: 1 },
-  "Area and volume": { 2: 1, 3: 1 },
-  "Right triangles and trigonometry": { 2: 1, 3: 1 },
+  "Systems of two linear equations in two variables": { 2: 1 },
   "Linear inequalities in one or two variables": { 2: 1 },
-  "Lines, angles, and triangles": { 2: 1 },
+  // Advanced Math (8)
+  "Nonlinear functions": { 2: 2, 3: 1 },
+  "Nonlinear equations in one variable and systems of equations in two variables": { 2: 1, 3: 2 },
+  "Equivalent expressions": { 2: 1, 3: 1 },
+  // Problem-Solving & Data Analysis (3)
+  "Percentages": { 2: 1, 3: 1 },
+  "Ratios, rates, propor tional relationships, and units": { 2: 1 },
+  // Geometry & Trigonometry (3)
+  "Area and volume": { 2: 1, 3: 1 },
+  "Right triangles and trigonometry": { 2: 1 },
 };
 const MATH_M2_HARD: SkillDifficultyMix = {
-  "Nonlinear functions": { 3: 1, 4: 2 },
+  // Algebra (8)
   "Linear functions": { 3: 1, 4: 1 },
-  "Nonlinear equations in one variable and systems of equations in two variables": { 3: 1, 4: 1 },
-  "Equivalent expressions": { 3: 1, 4: 1 },
   "Linear equations in two variables": { 3: 1, 4: 1 },
-  "Systems of two linear equations in two variables": { 3: 1, 4: 1 },
   "Linear equations in one variable": { 3: 1, 4: 1 },
-  "Area and volume": { 3: 1, 4: 1 },
-  "Right triangles and trigonometry": { 3: 1, 4: 1 },
+  "Systems of two linear equations in two variables": { 4: 1 },
   "Linear inequalities in one or two variables": { 4: 1 },
+  // Advanced Math (8)
+  "Nonlinear functions": { 3: 1, 4: 2 },
+  "Nonlinear equations in one variable and systems of equations in two variables": { 3: 1, 4: 2 },
+  "Equivalent expressions": { 3: 1, 4: 1 },
+  // Problem-Solving & Data Analysis (3)
+  "Percentages": { 3: 1, 4: 1 },
+  "Probability and conditional probability": { 4: 1 },
+  // Geometry & Trigonometry (3)
+  "Right triangles and trigonometry": { 3: 1, 4: 1 },
   "Lines, angles, and triangles": { 4: 1 },
 };
 
@@ -196,7 +215,7 @@ export interface PTModuleState {
   timeMs: number;
   tier: "easy" | "hard" | null; // set for adaptive modules once assembled
   questionIds: string[] | null; // null until the module is reached/assembled
-  answers: Record<string, AnswerKey>;
+  answers: Record<string, string>; // "A".."D" (mcq) or typed value (grid-in)
   status: "pending" | "active" | "submitted";
   answered: number;
   correct: number;
@@ -214,4 +233,7 @@ export interface PracticeTestSession {
   totalAnswered: number;
   totalCorrect: number;
   completedAt?: number | null;
+  // Set when this test was assigned by a tutor — completion is mirrored back to
+  // the assignment doc so the tutor sees the score.
+  assignmentId?: string | null;
 }

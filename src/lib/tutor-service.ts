@@ -5,6 +5,7 @@ import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { getProfile, type AuthedUser } from "@/lib/server-auth";
 import { sampleByCriteria, getQuestionById } from "@/lib/question-bank";
 import { listPracticeSummaries } from "@/lib/practice-service";
+import { getBlueprint } from "@/lib/practice-tests";
 import {
   emptyProgress,
   type Assignment,
@@ -303,6 +304,43 @@ export async function createAssignment(
   await ref.set(assignment);
   // Burn these questions for this student so they never reappear.
   await markQuestionsUsed(studentId, questionIds);
+  return assignment;
+}
+
+// Assign a full, timed, adaptive digital-SAT practice test (from a blueprint).
+// The student launches it from their dashboard; the practice-test session is
+// created lazily on first launch (see startAssignedPracticeTest).
+export async function createPracticeTestAssignment(
+  tutorId: string,
+  studentId: string,
+  title: string,
+  blueprintId: string,
+): Promise<Assignment> {
+  await assertOwnsStudent(tutorId, studentId);
+  const bp = getBlueprint(blueprintId);
+  if (!bp) throw new Error("Unknown practice test.");
+
+  const ref = adminDb.collection("assignments").doc();
+  const assignment: Assignment = {
+    id: ref.id,
+    tutorId,
+    studentId,
+    title: title.trim() || bp.title,
+    kind: "practice_test",
+    blueprintId: bp.id,
+    // Practice tests aren't criteria-sampled; keep an empty criteria for shape.
+    criteria: { sections: [], skills: [], subSkills: [], difficulties: [], count: 0 },
+    questionIds: [],
+    createdAt: Date.now(),
+    status: "assigned",
+    answered: 0,
+    correct: 0,
+    totalTimeMs: 0,
+    completedAt: null,
+    sessionId: null,
+    practiceTestId: null,
+  };
+  await ref.set(assignment);
   return assignment;
 }
 

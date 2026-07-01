@@ -11,10 +11,10 @@
  * Anything malformed (or a table we can't convert) is skipped and logged.
  *
  * Also seeds the **Math** bank (data/math/math-qbank-generated.json) as
- * section="math", staged for whenever Math practice is wired up. Only
- * type="mcq" questions are loaded — the bank's grid-in (free-response)
- * questions don't fit the current A–D Question schema / test-runner UI and
- * are skipped (count logged).
+ * section="math". Both question types are loaded: type="mcq" (A–D choices) and
+ * type="grid_in" (free-response — empty choices, the typed answer stored in
+ * correctAnswer and graded numerically via gridInCorrect). Only malformed
+ * records are skipped (count logged).
  *
  * Usage:
  *   pnpm seed                                       # -> real project (needs FIREBASE_SERVICE_ACCOUNT_B64)
@@ -226,6 +226,7 @@ function transform(src: SourceQuestion) {
 
   return {
     section: "reading" as const,
+    type: "mcq" as const,
     skill: src.skill,
     subSkill: src.sub_skill,
     domain: src.domain,
@@ -258,22 +259,31 @@ function usable(q: SourceQuestion): boolean {
   return hasPassage || hasImage || hasTable;
 }
 
-// Only type="mcq" questions with valid A–D choices fit the current Question
-// schema; grid-in (free-response) questions are skipped by the caller.
+// Math questions are usable if they're an mcq with valid A–D choices, OR a
+// grid-in (free response) with a non-empty answer. Both fit the Question schema
+// (grid-in stores empty choices + the typed answer in correctAnswer).
 function usableMath(q: SourceMathQuestion): boolean {
+  if (!q.question) return false;
+  if (q.type === "grid_in") {
+    return typeof q.correct_answer === "string" && q.correct_answer.trim() !== "";
+  }
   if (q.type !== "mcq") return false;
   const keys = Object.keys(q.choices || {}).sort().join("");
   if (keys !== "ABCD") return false;
-  if (!["A", "B", "C", "D"].includes(q.correct_answer)) return false;
-  return !!q.question;
+  return ["A", "B", "C", "D"].includes(q.correct_answer);
 }
 
 function transformMath(src: SourceMathQuestion) {
-  const keys = Object.keys(src.choices!).sort();
-  const choices = keys.map((k) => ({ key: k as AnswerKey, text: src.choices![k] }));
+  const isGridIn = src.type === "grid_in";
+  const choices = isGridIn
+    ? []
+    : Object.keys(src.choices!)
+        .sort()
+        .map((k) => ({ key: k as AnswerKey, text: src.choices![k] }));
 
   return {
     section: "math" as const,
+    type: isGridIn ? ("grid_in" as const) : ("mcq" as const),
     skill: src.skill,
     subSkill: src.sub_skill,
     domain: src.domain,
@@ -284,7 +294,10 @@ function transformMath(src: SourceMathQuestion) {
     stimulusImage: null,
     stimulusTableHtml: null,
     choices,
-    correctAnswer: src.correct_answer as AnswerKey,
+    // mcq → answer key; grid-in → canonical typed answer (e.g. "-9/8").
+    correctAnswer: isGridIn
+      ? src.correct_answer.trim()
+      : (src.correct_answer as AnswerKey),
     explanation: src.rationale,
     source: "generated-math",
     rand: Math.random(),
@@ -312,9 +325,11 @@ async function main() {
   const allMath: SourceMathQuestion[] = mathRaw.questions ?? mathRaw;
   const keepMath = allMath.filter(usableMath);
   const skippedMath = allMath.length - keepMath.length;
+  const mcqCount = keepMath.filter((q) => q.type === "mcq").length;
+  const gridInCount = keepMath.length - mcqCount;
   console.log(
     `Loaded ${allMath.length} generated Math questions from ${MATH_SOURCE_PATH} ` +
-      `(${keepMath.length} mcq usable, ${skippedMath} skipped — grid-in / malformed, not yet supported)`,
+      `(${keepMath.length} usable: ${mcqCount} mcq + ${gridInCount} grid-in, ${skippedMath} skipped — malformed)`,
   );
   for (const src of keepMath) {
     records.push({
@@ -355,7 +370,7 @@ async function main() {
       ? `Snapshot-only: skipped Firestore writes.`
       : `Seeded ${written} questions to Firestore.`) +
       ` ${copiedImages} graph images copied, ${convertedTables} tables converted, ` +
-      `${skipped} RW skipped, ${skippedMath} Math skipped (grid-in/malformed).\n` +
+      `${skipped} RW skipped, ${skippedMath} Math skipped (malformed).\n` +
       `Wrote local snapshot data/question-bank.json (${records.length} questions).`,
   );
 }

@@ -29,7 +29,6 @@ export default function DashboardPage() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [tests, setTests] = useState<PTSummary[]>([]);
   const [starting, setStarting] = useState<string | null>(null);
-  const [startingTest, setStartingTest] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -52,6 +51,17 @@ export default function DashboardPage() {
     setStarting(a.id);
     setError("");
     try {
+      if (a.kind === "practice_test") {
+        // Full practice test: create/resume the practice-test session.
+        const res = await authedFetch("/api/practice-test", {
+          method: "POST",
+          body: JSON.stringify({ assignmentId: a.id }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Could not start practice test");
+        router.push(`/practice/${data.id}`);
+        return;
+      }
       const res = await authedFetch("/api/session", {
         method: "POST",
         body: JSON.stringify({ assignmentId: a.id }),
@@ -62,23 +72,6 @@ export default function DashboardPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start assignment");
       setStarting(null);
-    }
-  }
-
-  async function startPracticeTest() {
-    setStartingTest(true);
-    setError("");
-    try {
-      const res = await authedFetch("/api/practice-test", {
-        method: "POST",
-        body: JSON.stringify({ blueprintId: "sat-practice-1" }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not start practice test");
-      router.push(`/practice/${data.id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start practice test");
-      setStartingTest(false);
     }
   }
 
@@ -116,18 +109,6 @@ export default function DashboardPage() {
       </section>
 
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
-
-      <div className="card mb-10 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-        <div>
-          <h2 className="font-display text-xl font-medium">Full practice test</h2>
-          <p className="mt-1 text-sm text-ink-muted">
-            A timed, adaptive digital-SAT simulation — Reading &amp; Writing and Math, two modules each.
-          </p>
-        </div>
-        <button className="btn-primary shrink-0" disabled={startingTest} onClick={startPracticeTest}>
-          {startingTest ? "Starting…" : "Take a practice test"}
-        </button>
-      </div>
 
       {tests.length > 0 && (
         <section className="mb-10">
@@ -184,6 +165,21 @@ export default function DashboardPage() {
           {assignments.map((a) => {
             const done = a.status === "completed";
             const inProgress = !done && a.answered > 0;
+            const isTest = a.kind === "practice_test";
+            const meta = isTest
+              ? done
+                ? `Full practice test · scored ${pct(a.answered, a.correct)}%`
+                : inProgress
+                  ? `Full practice test · ${a.answered} answered`
+                  : "Full digital-SAT practice test · timed, 4 modules"
+              : `${a.questionIds.length} questions` +
+                (done
+                  ? ` · scored ${pct(a.answered, a.correct)}%`
+                  : inProgress
+                    ? ` · ${a.answered}/${a.questionIds.length} done`
+                    : a.criteria.skills.length
+                      ? ` · ${a.criteria.skills.join(", ")}`
+                      : "");
             return (
               <div
                 key={a.id}
@@ -191,29 +187,30 @@ export default function DashboardPage() {
               >
                 <div>
                   <div className="font-medium">{a.title}</div>
-                  <div className="text-xs text-ink-faint">
-                    {a.questionIds.length} questions
-                    {done
-                      ? ` · scored ${pct(a.answered, a.correct)}%`
-                      : inProgress
-                        ? ` · ${a.answered}/${a.questionIds.length} done`
-                        : a.criteria.skills.length
-                          ? ` · ${a.criteria.skills.join(", ")}`
-                          : ""}
-                  </div>
+                  <div className="text-xs text-ink-faint">{meta}</div>
                 </div>
                 {done ? (
                   <div className="flex items-center gap-3">
                     <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700">
                       Completed
                     </span>
-                    {a.sessionId && (
+                    {isTest && a.practiceTestId ? (
                       <button
                         className="btn-secondary"
-                        onClick={() => router.push(`/test/${a.sessionId}`)}
+                        onClick={() => router.push(`/practice/${a.practiceTestId}`)}
                       >
                         Review
                       </button>
+                    ) : (
+                      !isTest &&
+                      a.sessionId && (
+                        <button
+                          className="btn-secondary"
+                          onClick={() => router.push(`/test/${a.sessionId}`)}
+                        >
+                          Review
+                        </button>
+                      )
                     )}
                   </div>
                 ) : (

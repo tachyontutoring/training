@@ -58,7 +58,7 @@ the next question from a small candidate pool + write a coaching note; if
 
 | Path | Contents |
 |------|----------|
-| `questions/{id}` | Bank: section, skill, difficulty (2/3/4), passage, choices, correctAnswer, explanation, `stimulusImage`, `stimulusTableHtml`, `rand` |
+| `questions/{id}` | Bank: section, `type` (`mcq`\|`grid_in`), skill, difficulty (2/3/4), passage, choices, correctAnswer, explanation, `stimulusImage`, `stimulusTableHtml`, `rand`. For `grid_in` (math free-response): `choices` is empty and `correctAnswer` is the typed value (e.g. `-9/8`), graded numerically by `gridInCorrect` (`src/lib/grid-in.ts`) which accepts fraction↔decimal equivalents. Legacy docs without `type` are treated as `mcq`. |
 | `users/{uid}` | Profile: `role` (`student`\|`tutor`), email, displayName, `tutorId` (students), aggregate `progress` |
 | `users/{uid}/sessions/{sid}` | A test session (counts, `totalTimeMs`, `queue`, `assignmentId`, `currentQuestionId`) |
 | `users/{uid}/sessions/{sid}/responses/{qid}` | One graded response incl. `timeMs` |
@@ -78,10 +78,24 @@ import client types from here, not from modules that pull in `firebase-admin`).
 
 ## Questions source & figures
 
-- Source of truth: the sibling repo `../questions` (`tachyontutoring/questions`),
-  file `data/rw/rw-qbank-generated.json` — the **Claude-generated RW** bank only
-  (NOT the official CollegeBoard banks). Path is set by `RW_QUESTIONS_PATH`.
-- Only RW is wired up; Math is "coming soon" in the dashboard.
+- Source of truth: the sibling repo `../questions` (`tachyontutoring/questions`).
+  RW bank: `data/rw/rw-qbank-generated.json` (`RW_QUESTIONS_PATH`). Math bank:
+  `data/math/math-qbank-generated.json` (`MATH_QUESTIONS_PATH`). Both are the
+  **Claude-generated** banks (NOT the official CollegeBoard banks).
+- Both sections are live and served through the **full practice test**
+  (`sat-practice-1`): 4 modules — R&W 27+27, Math 22+22 = **98 questions**,
+  matching the real digital SAT. Math domain weights follow College Board
+  (Algebra/Advanced ~36% each, Problem-Solving & Data Analysis + Geometry/Trig
+  ~14% each) and include both `mcq` and `grid_in` questions (grid-in sampled by
+  skill just like mcq; the runner renders `GridInInput` for them).
+- **Practice tests are tutor-assigned only** — there is no student self-serve
+  entry. A tutor assigns one from the student-detail page (`kind:"practice_test"`
+  assignment, empty `questionIds`, `blueprintId` set). The student launches it
+  from their dashboard: `POST /api/practice-test {assignmentId}` →
+  `startAssignedPracticeTest` (creates/resumes the `practiceTests/{id}` session,
+  linked both ways). Completion mirrors status/score back onto the assignment
+  doc. Criteria-based **question sets** (`kind:"question_set"`, the default) still
+  run in the Bluebook session runner as before.
 - Difficulty maps Easy→2, Medium→3, Hard→4.
 - **Figures** (`scripts/seed-questions.ts`):
   - Graph questions → PNG copied to `public/figures/`, stored as `stimulusImage`.

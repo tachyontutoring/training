@@ -4,10 +4,10 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { pickNextQuestion, type Candidate } from "@/lib/claude";
 import { getQuestionById, sampleCandidates } from "@/lib/question-bank";
+import { gradeAnswer, isValidDraftAnswer } from "@/lib/grid-in";
 import {
   emptyProgress,
   toPublicQuestion,
-  type AnswerKey,
   type Assignment,
   type ProgressStats,
   type PublicQuestion,
@@ -187,7 +187,7 @@ function coveredIds(session: SessionDoc): string[] {
 export interface SessionFull {
   session: SessionDoc;
   questions: PublicQuestion[];
-  answers: Record<string, AnswerKey>;
+  answers: Record<string, string>;
   marked: string[];
   currentIndex: number;
 }
@@ -217,8 +217,6 @@ export async function getSessionFull(
   };
 }
 
-const ANSWER_KEYS = new Set<AnswerKey>(["A", "B", "C", "D"]);
-
 // Persist ungraded progress so a set can be resumed. Never grades.
 export async function saveDraft(
   uid: string,
@@ -232,9 +230,11 @@ export async function saveDraft(
   if (session.status === "completed") return; // already graded — ignore late saves
 
   const valid = new Set(coveredIds(session));
-  const answers: Record<string, AnswerKey> = {};
+  const answers: Record<string, string> = {};
   for (const [qid, a] of Object.entries(draft.answers ?? {})) {
-    if (valid.has(qid) && ANSWER_KEYS.has(a as AnswerKey)) answers[qid] = a as AnswerKey;
+    if (!valid.has(qid)) continue;
+    const q = await getQuestionById(qid);
+    if (q && isValidDraftAnswer(q.type, a)) answers[qid] = a;
   }
   const marked = (draft.marked ?? []).filter((id) => valid.has(id));
   const currentIndex = Number.isFinite(draft.currentIndex) ? Number(draft.currentIndex) : 0;
@@ -255,8 +255,8 @@ export async function saveDraft(
 
 export interface SubmittedQuestion {
   questionId: string;
-  yourAnswer: AnswerKey | null;
-  correctAnswer: AnswerKey;
+  yourAnswer: string | null;
+  correctAnswer: string;
   correct: boolean;
   explanation: string;
 }
@@ -293,9 +293,7 @@ export async function submitSession(
   for (const id of coveredIds(session)) {
     const q = await getQuestionById(id);
     if (!q) continue;
-    const raw = source[id];
-    const your = ANSWER_KEYS.has(raw as AnswerKey) ? (raw as AnswerKey) : null;
-    const isCorrect = your != null && your === q.correctAnswer;
+    const { your, correct: isCorrect } = gradeAnswer(q, source[id]);
     results.push({
       questionId: id,
       yourAnswer: your,
@@ -349,7 +347,7 @@ export async function submitSession(
     totalTimeMs,
     status: "completed",
     currentQuestionId: null,
-    draftAnswers: source as Record<string, AnswerKey>,
+    draftAnswers: source,
   };
   const writes: Promise<unknown>[] = [
     ...responseWrites,
@@ -378,7 +376,7 @@ export async function submitSession(
 
 export interface GradeResult {
   correct: boolean;
-  correctAnswer: AnswerKey;
+  correctAnswer: string;
   explanation: string;
   coaching: string;
   session: SessionDoc;
@@ -390,7 +388,7 @@ export async function submitAnswer(
   uid: string,
   sessionId: string,
   questionId: string,
-  selectedAnswer: AnswerKey,
+  selectedAnswer: string,
   timeMs: number,
 ): Promise<GradeResult> {
   const sessionRef = adminDb.doc(`users/${uid}/sessions/${sessionId}`);
@@ -406,7 +404,7 @@ export async function submitAnswer(
   const question = await getQuestionById(questionId);
   if (!question) throw new Error("Question not found");
 
-  const correct = selectedAnswer === question.correctAnswer;
+  const { your, correct } = gradeAnswer(question, selectedAnswer);
 
   const response: ResponseDoc = {
     questionId,
@@ -414,7 +412,7 @@ export async function submitAnswer(
     skill: question.skill,
     subSkill: question.subSkill ?? null,
     difficulty: question.difficulty,
-    selectedAnswer,
+    selectedAnswer: your ?? selectedAnswer,
     correct,
     answeredAt: Date.now(),
     timeMs,

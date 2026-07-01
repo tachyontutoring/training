@@ -4,6 +4,7 @@ out
 .env
 .env.local
 .env*.local
+env.download
 *.log
 .firebase
 firebase-debug.log

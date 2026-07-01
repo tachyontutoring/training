@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUid, AuthError } from "@/lib/server-auth";
 import { submitAnswer } from "@/lib/session-service";
-import type { AnswerKey } from "@/lib/types";
 
 export const runtime = "nodejs";
-
-const KEYS: AnswerKey[] = ["A", "B", "C", "D"];
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,10 +10,13 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const { sessionId, questionId, selectedAnswer, timeMs } = body ?? {};
 
+    // selectedAnswer is an A–D key (mcq) or a typed value (grid-in); the grader
+    // validates it against the question. Reject only empty/non-string here.
     if (
       typeof sessionId !== "string" ||
       typeof questionId !== "string" ||
-      !KEYS.includes(selectedAnswer)
+      typeof selectedAnswer !== "string" ||
+      selectedAnswer.trim() === ""
     ) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }

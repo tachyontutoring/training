@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
+import { PasswordInput } from "@/components/PasswordInput";
 
 export default function SignupPage() {
   const { signUp, authedFetch } = useAuth();
@@ -68,9 +69,7 @@ export default function SignupPage() {
         </div>
         <div>
           <label className="mono-label mb-1.5 block">Password</label>
-          <input
-            className="input"
-            type="password"
+          <PasswordInput
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="new-password"
@@ -80,9 +79,7 @@ export default function SignupPage() {
         </div>
         <div>
           <label className="mono-label mb-1.5 block">Confirm password</label>
-          <input
-            className="input"
-            type="password"
+          <PasswordInput
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             autoComplete="new-password"

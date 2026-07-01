@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUid, AuthError } from "@/lib/server-auth";
-import { createPracticeTest, listPracticeSummaries } from "@/lib/practice-service";
+import {
+  startAssignedPracticeTest,
+  listPracticeSummaries,
+} from "@/lib/practice-service";
 
 export const runtime = "nodejs";
 
@@ -22,14 +25,21 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// Start a new practice test. Body: { blueprintId }.
+// Launch (or resume) a tutor-assigned practice test. Body: { assignmentId }.
+// Practice tests are assignable ONLY by a tutor — there is no self-serve path,
+// so this requires a practice-test assignment that belongs to the caller.
 export async function POST(req: NextRequest) {
   try {
     const uid = await requireUid(req);
     const body = await req.json().catch(() => ({}));
-    const blueprintId =
-      typeof body?.blueprintId === "string" ? body.blueprintId : "sat-practice-1";
-    const id = await createPracticeTest(uid, blueprintId);
+    const assignmentId = typeof body?.assignmentId === "string" ? body.assignmentId : "";
+    if (!assignmentId) {
+      return NextResponse.json(
+        { error: "A practice test must be assigned by your tutor." },
+        { status: 400 },
+      );
+    }
+    const id = await startAssignedPracticeTest(uid, assignmentId);
     return NextResponse.json({ id });
   } catch (err) {
     if (err instanceof AuthError) {
