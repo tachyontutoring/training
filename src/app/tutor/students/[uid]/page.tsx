@@ -28,10 +28,49 @@ type QPreview = {
   hasStimulus: boolean;
 };
 
+type PTSummary = {
+  id: string;
+  title: string;
+  status: "active" | "completed";
+  createdAt: number;
+  completedAt: number | null;
+  totalAnswered: number;
+  totalCorrect: number;
+  pct: number;
+  reading: { answered: number; correct: number; pct: number };
+  math: { answered: number; correct: number; pct: number };
+  modules: {
+    id: string;
+    title: string;
+    section: string;
+    tier: "easy" | "hard" | null;
+    answered: number;
+    correct: number;
+    total: number;
+  }[];
+};
+
+type MistakeItem = {
+  questionId: string;
+  section: string;
+  skill: string;
+  subSkill: string | null;
+  difficulty: number;
+  prompt: string;
+  passage: string | null;
+  stimulusImage: string | null;
+  stimulusTableHtml: string | null;
+  choices: { key: string; text: string }[];
+  yourAnswer: string | null;
+  correctAnswer: string;
+  explanation: string;
+};
+
 interface Detail {
   profile: UserProfile;
   progress: ProgressStats;
   assignments: Assignment[];
+  practiceTests: PTSummary[];
 }
 
 export default function StudentDetailPage({
@@ -77,6 +116,35 @@ export default function StudentDetailPage({
   const [browsing, setBrowsing] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<QPreview | null>(null);
+
+  // mistakes drill-down (wrong questions on an assignment or practice test)
+  const [mistakes, setMistakes] = useState<
+    { title: string; items: MistakeItem[] } | null
+  >(null);
+  const [mistakesLoading, setMistakesLoading] = useState(false);
+
+  const openMistakes = useCallback(
+    async (kind: "assignment" | "practice", id: string) => {
+      setMistakesLoading(true);
+      setMistakes({ title: "Loading…", items: [] });
+      try {
+        const res = await authedFetch(
+          `/api/tutor/students/${uid}/mistakes?kind=${kind}&id=${id}`,
+        );
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || "Could not load mistakes");
+        setMistakes(d);
+      } catch (e) {
+        setMistakes({
+          title: e instanceof Error ? e.message : "Could not load mistakes",
+          items: [],
+        });
+      } finally {
+        setMistakesLoading(false);
+      }
+    },
+    [authedFetch, uid],
+  );
 
   const load = useCallback(() => {
     authedFetch(`/api/tutor/students/${uid}`)
@@ -320,6 +388,63 @@ export default function StudentDetailPage({
           value={`${pct(detail.progress.totalAnswered, detail.progress.totalCorrect)}%`}
         />
         <Stat label="Skills practiced" value={skillRows.length} />
+      </section>
+
+      {/* Practice tests */}
+      <section className="card mb-8">
+        <h2 className="mb-3 font-display text-lg font-medium">Practice tests</h2>
+        {detail.practiceTests.length === 0 ? (
+          <p className="text-sm text-ink-faint">No practice tests taken yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {detail.practiceTests.map((t) => (
+              <div key={t.id} className="rounded-lg border border-line p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-medium">{t.title}</div>
+                  {t.status === "completed" ? (
+                    <span className="shrink-0 text-sm font-semibold text-accent-700">
+                      {t.pct}% · {t.totalCorrect}/{t.totalAnswered}
+                    </span>
+                  ) : (
+                    <span className="shrink-0 text-sm text-amber-600">In progress</span>
+                  )}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-muted">
+                  <span>
+                    R&amp;W {t.reading.correct}/{t.reading.answered} ({t.reading.pct}%)
+                  </span>
+                  <span>
+                    Math {t.math.correct}/{t.math.answered} ({t.math.pct}%)
+                  </span>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {t.modules.map((m) => {
+                    const short = m.title
+                      .replace("Reading & Writing — Module ", "R&W M")
+                      .replace("Math — Module ", "Math M");
+                    return (
+                      <span
+                        key={m.id}
+                        className="rounded border border-line px-2 py-0.5 text-[11px] text-ink-soft"
+                      >
+                        {short}
+                        {m.tier ? ` · ${m.tier}` : ""}: {m.correct}/{m.total}
+                      </span>
+                    );
+                  })}
+                </div>
+                {t.totalAnswered > 0 && (
+                  <button
+                    onClick={() => openMistakes("practice", t.id)}
+                    className="mt-2 text-xs font-medium text-accent-700 underline"
+                  >
+                    View wrong questions →
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Per-skill breakdown — click a skill to drill into subskills */}
@@ -628,6 +753,14 @@ export default function StudentDetailPage({
                       ? ` · ${a.criteria.skills.join(", ")}`
                       : " · any skill"}
                   </div>
+                  {a.answered > 0 && a.correct < a.answered && (
+                    <button
+                      onClick={() => openMistakes("assignment", a.id)}
+                      className="mt-1 text-xs font-medium text-accent-700 underline"
+                    >
+                      View wrong questions →
+                    </button>
+                  )}
                 </div>
                 <div className="text-right text-sm">
                   {a.status === "completed" ? (
@@ -647,6 +780,131 @@ export default function StudentDetailPage({
           </div>
         )}
       </section>
+
+      {/* Mistakes drill-down */}
+      {mistakes && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4"
+          onClick={() => setMistakes(null)}
+        >
+          <div
+            className="my-8 w-full max-w-2xl rounded-xl bg-paper p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <div className="font-mono text-[10px] uppercase tracking-wide text-ink-faint">
+                  Wrong questions
+                </div>
+                <h3 className="font-display text-lg font-medium">{mistakes.title}</h3>
+              </div>
+              <button
+                onClick={() => setMistakes(null)}
+                className="shrink-0 text-ink-muted hover:text-ink"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            {mistakesLoading ? (
+              <p className="text-sm text-ink-faint">Loading…</p>
+            ) : mistakes.items.length === 0 ? (
+              <p className="text-sm text-ink-faint">
+                No wrong answers — the student got everything they answered correct.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                {mistakes.items.map((m, i) => (
+                  <div key={m.questionId} className="rounded-lg border border-line p-3">
+                    <div className="mb-2 font-mono text-[10px] uppercase tracking-wide text-ink-faint">
+                      {i + 1}. {m.skill} · {DIFF_LABEL[m.difficulty] ?? m.difficulty}
+                      {m.subSkill ? ` · ${humanizeSubSkill(m.subSkill)}` : ""}
+                    </div>
+
+                    {m.stimulusImage && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={m.stimulusImage}
+                        alt="Figure"
+                        className="mb-2 max-h-56 w-auto rounded border border-line"
+                      />
+                    )}
+                    {m.stimulusTableHtml && (
+                      <div
+                        className="stimulus-table mb-2"
+                        dangerouslySetInnerHTML={{ __html: m.stimulusTableHtml }}
+                      />
+                    )}
+                    {m.passage && m.passage.trim() && (
+                      <div className="mb-2 whitespace-pre-line border-l-2 border-line pl-3 text-xs leading-relaxed text-ink-soft">
+                        {m.passage}
+                      </div>
+                    )}
+
+                    <p className="mb-2 text-sm font-medium text-ink">
+                      {m.section === "math" ? <MathText text={m.prompt} /> : m.prompt}
+                    </p>
+
+                    <div className="space-y-1.5">
+                      {m.choices.map((c) => {
+                        const correct = c.key === m.correctAnswer;
+                        const theirs = c.key === m.yourAnswer;
+                        let cls =
+                          "flex items-start gap-2 rounded-md border px-3 py-1.5 text-sm";
+                        if (correct) cls += " border-green-500 bg-green-50";
+                        else if (theirs) cls += " border-rose-400 bg-rose-50";
+                        else cls += " border-line";
+                        return (
+                          <div key={c.key} className={cls}>
+                            <span className="font-semibold">{c.key}.</span>
+                            <span className="flex-1">
+                              {m.section === "math" ? <MathText text={c.text} /> : c.text}
+                            </span>
+                            {correct && (
+                              <span className="text-xs font-semibold text-green-700">correct</span>
+                            )}
+                            {theirs && !correct && (
+                              <span className="text-xs font-semibold text-rose-700">
+                                their answer
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {m.yourAnswer == null && (
+                      <p className="mt-1.5 text-xs italic text-ink-faint">Left blank.</p>
+                    )}
+
+                    {m.explanation && (
+                      <div className="mt-2 rounded-md bg-paper-soft p-2.5">
+                        <div className="mb-1 font-mono text-[10px] uppercase tracking-wide text-ink-faint">
+                          Explanation
+                        </div>
+                        <p className="text-xs leading-relaxed text-ink-soft">
+                          {m.section === "math" ? (
+                            <MathText text={m.explanation} />
+                          ) : (
+                            m.explanation
+                          )}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-5 flex justify-end">
+              <button onClick={() => setMistakes(null)} className="btn-primary">
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Question viewer */}
       {viewing && (

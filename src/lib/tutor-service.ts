@@ -4,6 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { getProfile, type AuthedUser } from "@/lib/server-auth";
 import { sampleByCriteria, getQuestionById } from "@/lib/question-bank";
+import { listPracticeSummaries } from "@/lib/practice-service";
 import {
   emptyProgress,
   type Assignment,
@@ -204,6 +205,8 @@ export async function getStudentDetail(tutorId: string, studentId: string) {
     .map((d) => ({ id: d.id, ...(d.data() as Omit<Assignment, "id">) }))
     .sort((a, b) => b.createdAt - a.createdAt);
 
+  const practiceTests = await listPracticeSummaries(studentId);
+
   // Resolve the real name from Auth and heal the stored profile if it was stale.
   const authName = await authDisplayName(studentId);
   if (authName && authName !== profile.displayName) {
@@ -211,7 +214,7 @@ export async function getStudentDetail(tutorId: string, studentId: string) {
     profile.displayName = authName;
   }
 
-  return { profile, progress, assignments };
+  return { profile, progress, assignments, practiceTests };
 }
 
 // Let a tutor set/correct a student's display name (they own the roster entry).
@@ -301,6 +304,98 @@ export async function createAssignment(
   // Burn these questions for this student so they never reappear.
   await markQuestionsUsed(studentId, questionIds);
   return assignment;
+}
+
+// A single question a student answered incorrectly, with full detail for the
+// tutor's review (the tutor is trusted to see answers + explanations).
+export interface MistakeItem {
+  questionId: string;
+  section: string;
+  skill: string;
+  subSkill?: string | null;
+  difficulty: number;
+  prompt: string;
+  passage?: string | null;
+  stimulusImage?: string | null;
+  stimulusTableHtml?: string | null;
+  choices: { key: string; text: string }[];
+  yourAnswer: string | null;
+  correctAnswer: string;
+  explanation: string;
+}
+
+async function mistakeFor(
+  qid: string,
+  yourAnswer: string | null,
+): Promise<MistakeItem | null> {
+  const q = await getQuestionById(qid);
+  if (!q) return null;
+  return {
+    questionId: q.id,
+    section: q.section,
+    skill: q.skill,
+    subSkill: q.subSkill ?? null,
+    difficulty: q.difficulty,
+    prompt: q.prompt,
+    passage: q.passage ?? null,
+    stimulusImage: q.stimulusImage ?? null,
+    stimulusTableHtml: q.stimulusTableHtml ?? null,
+    choices: q.choices,
+    yourAnswer,
+    correctAnswer: q.correctAnswer,
+    explanation: q.explanation,
+  };
+}
+
+// Wrong answers from a completed assignment (tutor-owned student only).
+export async function getAssignmentMistakes(
+  tutorId: string,
+  studentId: string,
+  assignmentId: string,
+): Promise<{ title: string; items: MistakeItem[] }> {
+  await assertOwnsStudent(tutorId, studentId);
+  const aSnap = await adminDb.doc(`assignments/${assignmentId}`).get();
+  const a = aSnap.data() as Assignment | undefined;
+  if (!a || a.studentId !== studentId || a.tutorId !== tutorId) {
+    throw new Error("Assignment not found.");
+  }
+  const items: MistakeItem[] = [];
+  if (a.sessionId) {
+    const resSnap = await adminDb
+      .collection(`users/${studentId}/sessions/${a.sessionId}/responses`)
+      .get();
+    for (const d of resSnap.docs) {
+      const r = d.data();
+      if (r.correct) continue;
+      const item = await mistakeFor(r.questionId ?? d.id, r.selectedAnswer ?? null);
+      if (item) items.push(item);
+    }
+  }
+  return { title: a.title, items };
+}
+
+// Wrong answers from a practice test (tutor-owned student only).
+export async function getPracticeTestMistakes(
+  tutorId: string,
+  studentId: string,
+  testId: string,
+): Promise<{ title: string; items: MistakeItem[] }> {
+  await assertOwnsStudent(tutorId, studentId);
+  const snap = await adminDb.doc(`users/${studentId}/practiceTests/${testId}`).get();
+  const s = snap.data();
+  if (!s) throw new Error("Practice test not found.");
+  const items: MistakeItem[] = [];
+  for (const m of (s.modules ?? []) as { questionIds?: string[]; answers?: Record<string, string> }[]) {
+    for (const qid of m.questionIds ?? []) {
+      const q = await getQuestionById(qid);
+      if (!q) continue;
+      const your = m.answers?.[qid] ?? null;
+      if (your === q.correctAnswer) continue; // include unanswered + wrong
+      const item = await mistakeFor(qid, your);
+      if (item) items.push(item);
+    }
+  }
+  return { title: (s.title as string) ?? "Practice test", items };
 }
 
 // Assignments a student can see on their own dashboard.

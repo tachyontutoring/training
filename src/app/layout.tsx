@@ -13,9 +13,9 @@ const mono = Space_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "School of Athens — SAT Practice",
+  title: "Tachyon — SAT Practice",
   description:
-    "Adaptive SAT practice from School of Athens. Take full tests or drill reading and math.",
+    "Adaptive SAT practice from Tachyon. Take full tests or drill reading and math.",
 };
 
 export default function RootLayout({

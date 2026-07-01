@@ -74,7 +74,7 @@ async function pickWithClaude(args: {
     .join("\n");
 
   const system =
-    "You are the adaptive engine for an SAT prep tutor named School of Athens. " +
+    "You are the adaptive engine for an SAT prep tutor named Tachyon. " +
     "You select the single best next question for a learner to maximize learning: " +
     "reinforce weak skills, calibrate difficulty to keep them challenged but not " +
     "demoralized, and vary skills. Reply with ONLY a JSON object, no prose.";

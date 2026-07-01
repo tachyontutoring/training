@@ -75,7 +75,7 @@ export default function TutorDashboard() {
       <header className="mb-8 flex items-center justify-between">
         <div>
           <p className="mono-label-accent">
-            School of Athens · Tutor
+            Tachyon · Tutor
           </p>
           <h1 className="font-display text-3xl font-medium tracking-tight">{profile.displayName}&rsquo;s students</h1>
         </div>

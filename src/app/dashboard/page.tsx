@@ -5,7 +5,21 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { emptyProgress, type ProgressStats } from "@/lib/types";
+import { predictedScore } from "@/lib/scoring";
 import type { Assignment } from "@/lib/client-types";
+
+type PTSummary = {
+  id: string;
+  title: string;
+  status: "active" | "completed";
+  createdAt: number;
+  completedAt: number | null;
+  totalAnswered: number;
+  totalCorrect: number;
+  pct: number;
+  reading: { answered: number; correct: number; pct: number };
+  math: { answered: number; correct: number; pct: number };
+};
 
 export default function DashboardPage() {
   const { user, loading } = useRequireAuth();
@@ -13,6 +27,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [progress, setProgress] = useState<ProgressStats>(emptyProgress());
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [tests, setTests] = useState<PTSummary[]>([]);
   const [starting, setStarting] = useState<string | null>(null);
   const [startingTest, setStartingTest] = useState(false);
   const [error, setError] = useState("");
@@ -26,6 +41,10 @@ export default function DashboardPage() {
     authedFetch("/api/assignments")
       .then((r) => r.json())
       .then((d) => setAssignments(d.assignments ?? []))
+      .catch(() => {});
+    authedFetch("/api/practice-test")
+      .then((r) => r.json())
+      .then((d) => setTests(d.tests ?? []))
       .catch(() => {});
   }, [user, authedFetch]);
 
@@ -78,7 +97,7 @@ export default function DashboardPage() {
       <header className="mb-8 flex items-center justify-between">
         <div>
           <p className="mono-label-accent">
-            School of Athens
+            Tachyon
           </p>
           <h1 className="font-display text-3xl font-medium tracking-tight">
             Welcome, {user.displayName || user.email?.split("@")[0]}
@@ -109,6 +128,50 @@ export default function DashboardPage() {
           {startingTest ? "Starting…" : "Take a practice test"}
         </button>
       </div>
+
+      {tests.length > 0 && (
+        <section className="mb-10">
+          <h2 className="mb-4 font-display text-xl font-medium">Your practice tests</h2>
+          <div className="space-y-3">
+            {tests.map((t) => {
+              const done = t.status === "completed";
+              const score = predictedScore(
+                t.reading.correct,
+                t.reading.answered,
+                t.math.correct,
+                t.math.answered,
+              );
+              return (
+                <div key={t.id} className="card flex items-center justify-between">
+                  <div>
+                    <div className="font-medium">{t.title}</div>
+                    <div className="text-xs text-ink-faint">
+                      {done
+                        ? `Predicted ${score.total} · R&W ${score.rw} · Math ${score.math}`
+                        : "In progress"}
+                    </div>
+                  </div>
+                  {done ? (
+                    <button
+                      className="btn-secondary"
+                      onClick={() => router.push(`/practice/${t.id}`)}
+                    >
+                      Review
+                    </button>
+                  ) : (
+                    <button
+                      className="btn-primary"
+                      onClick={() => router.push(`/practice/${t.id}`)}
+                    >
+                      Resume
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <h2 className="mb-4 font-display text-xl font-medium">Assigned by your tutor</h2>
       {assignments.length === 0 ? (

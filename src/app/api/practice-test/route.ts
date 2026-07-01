@@ -1,8 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUid, AuthError } from "@/lib/server-auth";
-import { createPracticeTest } from "@/lib/practice-service";
+import { createPracticeTest, listPracticeSummaries } from "@/lib/practice-service";
 
 export const runtime = "nodejs";
+
+// The signed-in student's own practice tests (most recent first).
+export async function GET(req: NextRequest) {
+  try {
+    const uid = await requireUid(req);
+    const tests = await listPracticeSummaries(uid);
+    return NextResponse.json({ tests });
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: 401 });
+    }
+    console.error("[api/practice-test GET]", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Server error" },
+      { status: 500 },
+    );
+  }
+}
 
 // Start a new practice test. Body: { blueprintId }.
 export async function POST(req: NextRequest) {
